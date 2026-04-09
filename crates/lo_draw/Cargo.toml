@@ -1,0 +1,14 @@
+[package]
+name = "lo_draw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Vector drawing page builder with ODG export"
+readme = "README.md"
+
+[dependencies]
+lo_core = { path = "../lo_core", version = "0.4.3" }
+lo_odf = { path = "../lo_odf", version = "0.4.3" }
+lo_zip = { path = "../lo_zip", version = "0.4.3" }

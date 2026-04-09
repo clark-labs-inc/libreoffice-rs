@@ -1,0 +1,14 @@
+/target
+Cargo.lock
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+*.odt
+*.ods
+*.odp
+*.odg
+*.odf
+*.odb

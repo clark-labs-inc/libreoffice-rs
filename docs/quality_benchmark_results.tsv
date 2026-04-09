@@ -1,0 +1,50 @@
+kind	name	test	libreoffice_rs	libreoffice	quality
+docx	blk-paras-tables	pdf_text_jaccard	5	639	100.0
+docx	blk-paras-tables	pdf_pages	1	1	
+docx	blk-paras-tables	md_text_jaccard	-	-	100.0
+docx	blk-paras-tables	png_pages	1	-	794x1123
+docx	calibre-demo	pdf_text_jaccard	66	1051	94.4
+docx	calibre-demo	pdf_pages	6	8	
+docx	calibre-demo	md_text_jaccard	-	-	91.2
+docx	calibre-demo	png_pages	7	-	794x1123
+docx	comments-rich	pdf_text_jaccard	3	687	100.0
+docx	comments-rich	pdf_pages	1	1	
+docx	comments-rich	md_text_jaccard	-	-	100.0
+docx	comments-rich	png_pages	1	-	794x1123
+docx	doc-add-section	pdf_text_jaccard	4	642	100.0
+docx	doc-add-section	pdf_pages	3	3	
+docx	doc-add-section	md_text_jaccard	-	-	100.0
+docx	doc-add-section	png_pages	3	-	794x1123
+docx	doc-default	pdf_text_jaccard	3	619	100.0
+docx	doc-default	pdf_pages	1	1	
+docx	doc-default	md_text_jaccard	-	-	100.0
+docx	doc-default	png_pages	1	-	794x1123
+docx	phpword-readword	pdf_text_jaccard	7	663	99.2
+docx	phpword-readword	pdf_pages	2	2	
+docx	phpword-readword	md_text_jaccard	-	-	96.2
+docx	phpword-readword	png_pages	2	-	794x1123
+docx	phpword-template	pdf_text_jaccard	7	647	100.0
+docx	phpword-template	pdf_pages	1	1	
+docx	phpword-template	md_text_jaccard	-	-	97.1
+docx	phpword-template	png_pages	1	-	794x1123
+pptx	cht-chart-type	pdf_text_jaccard	68	1516	41.7
+pptx	cht-chart-type	pdf_pages	8	8	
+pptx	cht-chart-type	md_text_jaccard	-	-	24.5
+pptx	cht-chart-type	png_pages	8	-	1058x595
+pptx	cht-charts	pdf_text_jaccard	7	645	100.0
+pptx	cht-charts	pdf_pages	1	1	
+pptx	cht-charts	md_text_jaccard	-	-	46.7
+pptx	cht-charts	png_pages	1	-	1058x595
+pptx	cht-datalabels	pdf_text_jaccard	14	660	45.8
+pptx	cht-datalabels	pdf_pages	5	5	
+pptx	cht-datalabels	md_text_jaccard	-	-	43.8
+pptx	cht-datalabels	png_pages	5	-	1058x595
+xlsx	phpss-26template	recalc_check	ok	0	0
+xlsx	phpss-26template	csv_cell_jaccard	3	640	100.0
+xlsx	phpss-26template	md_cell_jaccard	-	-	100.0
+xlsx	phpss-28iter	recalc_check	ok	0	0
+xlsx	phpss-28iter	csv_cell_jaccard	3	576	100.0
+xlsx	phpss-28iter	md_cell_jaccard	-	-	100.0
+xlsx	phpss-31docprop	recalc_check	ok	0	0
+xlsx	phpss-31docprop	csv_cell_jaccard	2	536	100.0
+xlsx	phpss-31docprop	md_cell_jaccard	-	-	100.0

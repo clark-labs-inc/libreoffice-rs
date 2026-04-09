@@ -1,0 +1,22 @@
+libreoffice-rs repository summary
+================================
+
+Rust source files: 30
+Markdown/docs files: 4
+Approx. total lines (Rust + docs + Cargo.toml): 4875
+
+Crates:
+- lo_core
+- lo_zip
+- lo_odf
+- lo_writer
+- lo_calc
+- lo_impress
+- lo_draw
+- lo_math
+- lo_base
+- lo_uno
+- libreoffice-rs (CLI)
+
+Important note:
+This repository is a substantial pure-Rust office-suite foundation, not true LibreOffice feature parity.

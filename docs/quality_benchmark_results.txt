@@ -1,0 +1,81 @@
+============================================================
+Quality Benchmark Summary
+============================================================
+
+Corpus: 13 files
+Conversions attempted (rs PDF/CSV vs LO PDF/CSV): 13
+Both succeeded:                                   13
+At least one failed:                              0
+
+PDF text Jaccard similarity (per file):
+  docx                   blk-paras-tables     rs=    5ms lo=  639ms similarity=100.0%
+  docx                   calibre-demo         rs=   66ms lo= 1051ms similarity= 94.4%
+  docx                   comments-rich        rs=    3ms lo=  687ms similarity=100.0%
+  docx                   doc-add-section      rs=    4ms lo=  642ms similarity=100.0%
+  docx                   doc-default          rs=    3ms lo=  619ms similarity=100.0%
+  docx                   phpword-readword     rs=    7ms lo=  663ms similarity= 99.2%
+  docx                   phpword-template     rs=    7ms lo=  647ms similarity=100.0%
+  pptx                   cht-chart-type       rs=   68ms lo= 1516ms similarity= 41.7%
+  pptx                   cht-charts           rs=    7ms lo=  645ms similarity=100.0%
+  pptx                   cht-datalabels       rs=   14ms lo=  660ms similarity= 45.8%
+
+CSV cell Jaccard similarity (xlsx, per file):
+  phpss-26template       rs=    3ms lo=  640ms similarity=100.0%
+  phpss-28iter           rs=    3ms lo=  576ms similarity=100.0%
+  phpss-31docprop        rs=    2ms lo=  536ms similarity=100.0%
+
+Markdown extraction Jaccard vs LibreOffice plain text:
+  docx   blk-paras-tables       similarity=100.0%
+  docx   calibre-demo           similarity= 91.2%
+  docx   comments-rich          similarity=100.0%
+  docx   doc-add-section        similarity=100.0%
+  docx   doc-default            similarity=100.0%
+  docx   phpword-readword       similarity= 96.2%
+  docx   phpword-template       similarity= 97.1%
+  pptx   cht-chart-type         similarity= 24.5%
+  pptx   cht-charts             similarity= 46.7%
+  pptx   cht-datalabels         similarity= 43.8%
+  xlsx   phpss-26template       similarity=100.0%
+  xlsx   phpss-28iter           similarity=100.0%
+  xlsx   phpss-31docprop        similarity=100.0%
+
+PDF page count comparison:
+  docx   blk-paras-tables       rs=1 lo=1
+  docx   calibre-demo           rs=6 lo=8
+  docx   comments-rich          rs=1 lo=1
+  docx   doc-add-section        rs=3 lo=3
+  docx   doc-default            rs=1 lo=1
+  docx   phpword-readword       rs=2 lo=2
+  docx   phpword-template       rs=1 lo=1
+  pptx   cht-chart-type         rs=8 lo=8
+  pptx   cht-charts             rs=1 lo=1
+  pptx   cht-datalabels         rs=5 lo=5
+
+Native PNG raster pages (libreoffice-rs only):
+  docx   blk-paras-tables       pages=1 first=794x1123
+  docx   calibre-demo           pages=7 first=794x1123
+  docx   comments-rich          pages=1 first=794x1123
+  docx   doc-add-section        pages=3 first=794x1123
+  docx   doc-default            pages=1 first=794x1123
+  docx   phpword-readword       pages=2 first=794x1123
+  docx   phpword-template       pages=1 first=794x1123
+  pptx   cht-chart-type         pages=8 first=1058x595
+  pptx   cht-charts             pages=1 first=1058x595
+  pptx   cht-datalabels         pages=5 first=1058x595
+
+XLSX recalc-check (libreoffice-rs only):
+  phpss-26template       status=ok formulas=0 errors=0
+  phpss-28iter           status=ok formulas=0 errors=0
+  phpss-31docprop        status=ok formulas=0 errors=0
+
+Mean PDF Jaccard:
+  88.1% (n=10)
+Mean CSV Jaccard:
+  100.0% (n=3)
+Mean MD Jaccard:
+  84.6% (n=13)
+
+Speed (mean wall-clock):
+  rs=15ms  lo=732ms  speedup=49.6x
+
+Raw results: /tmp/lo_quality.6JNnii/results.tsv

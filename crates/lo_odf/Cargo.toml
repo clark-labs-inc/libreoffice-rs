@@ -1,0 +1,14 @@
+[package]
+name = "lo_odf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "ODF package serializers for text, spreadsheet, presentation, drawing, formula, and database documents"
+readme = "README.md"
+
+[dependencies]
+lo_core = { path = "../lo_core", version = "0.4.3" }
+lo_zip = { path = "../lo_zip", version = "0.4.3" }
+lo_math = { path = "../lo_math", version = "0.4.3" }

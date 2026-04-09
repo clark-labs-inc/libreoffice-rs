@@ -1,0 +1,13 @@
+[package]
+name = "lo_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Core data models and XML utilities for ODF document generation"
+readme = "README.md"
+
+[lib]
+name = "lo_core"
+path = "src/lib.rs"

@@ -1,0 +1,16 @@
+[package]
+name = "lo_math"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "LaTeX formula parser with MathML and ODF emission"
+readme = "README.md"
+
+[dependencies]
+lo_core = { path = "../lo_core", version = "0.4.3" }
+lo_zip = { path = "../lo_zip", version = "0.4.3" }
+
+[dev-dependencies]
+lo_odf = { path = "../lo_odf" }

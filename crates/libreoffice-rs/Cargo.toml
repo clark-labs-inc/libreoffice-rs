@@ -1,0 +1,34 @@
+[package]
+name = "libreoffice-pure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Pure-Rust LibreOffice-compatible document generation CLI"
+readme = "README.md"
+
+[lib]
+name = "libreoffice_pure"
+path = "src/lib.rs"
+
+[[bin]]
+name = "libreoffice-rs"
+path = "src/main.rs"
+
+[[bin]]
+name = "libreoffice-pure"
+path = "src/bin/libreoffice_pure.rs"
+
+[dependencies]
+lo_core = { path = "../lo_core", version = "0.4.3" }
+lo_zip = { path = "../lo_zip", version = "0.4.3" }
+lo_odf = { path = "../lo_odf", version = "0.4.3" }
+lo_writer = { path = "../lo_writer", version = "0.4.3" }
+lo_calc = { path = "../lo_calc", version = "0.4.3" }
+lo_impress = { path = "../lo_impress", version = "0.4.3" }
+lo_draw = { path = "../lo_draw", version = "0.4.3" }
+lo_math = { path = "../lo_math", version = "0.4.3" }
+lo_base = { path = "../lo_base", version = "0.4.3" }
+lo_uno = { path = "../lo_uno", version = "0.4.3" }
+lo_app = { path = "../lo_app", version = "0.4.3" }
