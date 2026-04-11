@@ -9,7 +9,7 @@ description = "Tabular data loading, type inference, and SQL query execution"
 readme = "README.md"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.4.3" }
-lo_odf = { path = "../lo_odf", version = "0.4.3" }
-lo_calc = { path = "../lo_calc", version = "0.4.3" }
-lo_zip = { path = "../lo_zip", version = "0.4.3" }
+lo_core = { path = "../lo_core", version = "0.4.4" }
+lo_odf = { path = "../lo_odf", version = "0.4.4" }
+lo_calc = { path = "../lo_calc", version = "0.4.4" }
+lo_zip = { path = "../lo_zip", version = "0.4.4" }

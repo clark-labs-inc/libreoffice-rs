@@ -1,28 +1,34 @@
-# libreoffice-rs
+# libreoffice-rs — Pure Rust Office Document Toolkit (DOCX, XLSX, PPTX, ODF, PDF)
 
-`libreoffice-rs` is a pure-Rust, std-only monorepo that builds a serious foundation for an office suite:
+> A **pure-Rust, std-only** library and CLI for reading, writing, converting, and rendering office documents — **DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG, ODF (Math), ODB, PDF, HTML, SVG, Markdown, CSV, and plain text** — with **no C/C++ shims, no FFI, no LibreOffice bindings, and zero non-std dependencies**. Use it as a native Rust alternative to shelling out to `soffice --headless --convert-to`.
 
-- Writer-like rich text documents with Markdown ingestion, **PDF text input**, and **TXT/HTML/SVG/PDF/ODT/DOCX** export
-- Calc-like spreadsheets with a formula engine and **CSV/HTML/SVG/PDF/ODS/XLSX** export
-- Impress-like slide decks with **HTML/SVG/PDF/ODP/PPTX** export, including native PPTX chart rendering
-- Draw-like vector pages with **SVG/PDF/ODG** export
-- Math-like TeX-style formula parsing with **MathML/SVG/PDF/ODF** export
-- Base-like tabular data with `SELECT` / `WHERE` / `ORDER BY` / `LIMIT` queries and **HTML/SVG/PDF/ODB** export
-- ODF and OOXML packaging on top of a native Rust ZIP writer
-- A pure-Rust raster pipeline (PNG + JPEG, no external crates) plus direct
-  DOCX/PPTX → PNG/JPEG page rendering and DOCX/PPTX/XLSX → Markdown extraction
-- Hardened DOCX tracked-changes acceptance and a legacy binary `.doc` reader
-- Byte-sniffing helpers (`sniff_format_from_bytes`, `convert_bytes_auto`) and
-  generic `libreoffice_pure::convert_bytes` / `convert_path_bytes` routers,
-  plus per-domain `writer_/calc_/impress_/draw_/math_/base_convert_bytes`
-- A UNO-like service runtime with property maps, an event bus, and built-in services
-- A LibreOfficeKit-like in-process runtime (`lo_lok`): document handles, command dispatch, callbacks, tile rendering
-- A desktop application surface (`lo_app`): start center, templates, recent files, preferences, autosave + recovery, macro recording/replay, per-window HTML shells with menubar/toolbar/sidebar
-- A command-line front-end with `office-demo`/`desktop-demo` end-to-end commands and a `soffice --headless --convert-to`-compatible conversion mode
+`libreoffice-rs` is a monorepo that builds a serious foundation for a Rust office suite:
+
+- **Rust DOCX / ODT library** — Writer-style rich text with Markdown ingestion, **PDF text input**, and **TXT / HTML / SVG / PDF / ODT / DOCX** export
+- **Rust XLSX / ODS library** — Calc-style spreadsheets with a native formula engine and **CSV / HTML / SVG / PDF / ODS / XLSX** export
+- **Rust PPTX / ODP library** — Impress-style slide decks with **HTML / SVG / PDF / ODP / PPTX** export, including native PPTX chart rendering
+- **Rust SVG / ODG vector library** — Draw-style vector pages with **SVG / PDF / ODG** export
+- **Rust MathML / LaTeX parser** — Math-style TeX-style formula parsing with **MathML / SVG / PDF / ODF** export
+- **Rust database export** — Base-style tabular data with `SELECT` / `WHERE` / `ORDER BY` / `LIMIT` queries and **HTML / SVG / PDF / ODB** export
+- **ODF and OOXML packaging** on top of a pure-Rust ZIP reader/writer ([OpenDocument Format](https://www.oasis-open.org/standard/opendocument/) + [Office Open XML](https://www.ecma-international.org/publications-and-standards/standards/ecma-376/))
+- **Pure-Rust raster pipeline** (PNG + JPEG, no external crates) plus direct **DOCX / PPTX → PNG / JPEG** page rendering and **DOCX / PPTX / XLSX → Markdown** extraction
+- **Hardened DOCX tracked-changes acceptance** and a legacy binary `.doc` reader
+- **Format auto-detection** via byte sniffing (`sniff_format_from_bytes`, `convert_bytes_auto`) and generic `libreoffice_pure::convert_bytes` / `convert_path_bytes` routers, plus per-domain `writer_/calc_/impress_/draw_/math_/base_convert_bytes`
+- **UNO-like service runtime** with property maps, an event bus, and built-in services
+- **LibreOfficeKit-like in-process runtime** (`lo_lok`): document handles, command dispatch, callbacks, SVG tile rendering
+- **Desktop application surface** (`lo_app`): start center, templates, recent files, preferences, autosave + recovery, macro recording/replay, per-window HTML shells with menubar/toolbar/sidebar
+- **Command-line office converter** with `office-demo` / `desktop-demo` end-to-end commands and a `soffice --headless --convert-to`-compatible conversion mode
 
 See [`CHANGELOG.md`](CHANGELOG.md) for per-version details.
 
-## Important status note
+## Why libreoffice-rs?
+
+- **No LibreOffice install required.** Convert DOCX → PDF, XLSX → CSV, PPTX → Markdown, and Markdown → DOCX directly from Rust — no `soffice` subprocess, no headless Java, no native dependencies.
+- **Pure Rust, std only.** Every crate compiles with just `cargo build` on a stock Rust toolchain. No `build.rs` C shims, no `bindgen`, no system libraries. Drop-in for WASM, sandboxes, serverless, and minimal containers.
+- **Fast.** 15–51× faster than driving real LibreOffice for typical generate/convert workloads (see benchmarks below).
+- **Honest.** This is **not** a full replacement for LibreOffice. The [Project status](#project-status-not-feature-parity-with-libreoffice) section says exactly what works and what doesn't.
+
+## Project status: not feature-parity with LibreOffice
 
 This repository is **not honest-to-goodness feature parity with LibreOffice**. LibreOffice is a massive decades-old office suite with millions of lines of code, deep import/export compatibility, UI toolkits, rendering, printing, macros, scripting, accessibility, collaboration, databases, and platform integration. This codebase provides a coherent Rust architecture and a meaningful amount of real functionality, but it does **not** fully replace LibreOffice.
 
@@ -33,7 +39,7 @@ That said, it is intentionally structured to be a practical starting point rathe
 - the spreadsheet engine parses and evaluates non-trivial formulas
 - the CLI can create/export actual `.odt`, `.ods`, `.odp`, `.odg`, `.odf`, and `.odb`-style archives
 
-## Benchmark Results vs Real LibreOffice
+## Benchmarks: libreoffice-rs vs real LibreOffice (DOCX, XLSX, PPTX, PDF)
 
 Tested against **LibreOffice 26.2.2** on macOS (Apple Silicon). All generated documents were validated by opening/converting them with the real LibreOffice CLI (`soffice --headless`).
 
@@ -182,7 +188,7 @@ in `docs/quality_benchmark_results.tsv`.
 
 Requires LibreOffice installed (`brew install --cask libreoffice` on macOS).
 
-## Workspace layout
+## Workspace layout (Rust crates)
 
 - `lo_core` — common models, XML/PDF/SVG/HTML helpers, styles, document data structures
 - `lo_zip` — minimal ZIP reader/writer in pure Rust + ODF/OOXML packaging helpers
@@ -198,7 +204,7 @@ Requires LibreOffice installed (`brew install --cask libreoffice` on macOS).
 - `lo_app` — desktop application surface over `lo_lok`: windows, preferences, recent files, templates, clipboard, autosave + recovery, macro recording/replay, start-center HTML and per-window HTML shells
 - `libreoffice-rs` — CLI binary with `office-demo` and `desktop-demo` end-to-end commands
 
-## Examples
+## Examples: DOCX, XLSX, PPTX, PDF, ODF conversion from the command line
 
 ```bash
 # Single-format conversions
@@ -265,3 +271,33 @@ conversion, raster rendering, and Markdown extraction.
 
 See `STATUS.md` for a candid feature matrix.
 See `CHANGELOG.md` for the per-version history.
+
+## FAQ
+
+### Does libreoffice-rs require LibreOffice to be installed?
+
+No. `libreoffice-rs` is a **pure-Rust office document library** — it parses, writes, and converts **DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG, ODF, ODB, and PDF** files directly. No `soffice` subprocess, no headless Java, no system libraries. LibreOffice only appears in this project's benchmarks and integration tests as a reference implementation.
+
+### Can I convert DOCX to PDF in Rust without C/C++ dependencies?
+
+Yes. `cargo run -p libreoffice-pure -- --headless --convert-to pdf report.docx` (or the library API `convert_bytes`) takes a DOCX and returns a PDF with zero native dependencies. The same works for **DOCX → Markdown, PPTX → PDF, XLSX → CSV, Markdown → DOCX, ODS → XLSX**, and other format pairs listed in [Examples](#examples-docx-xlsx-pptx-pdf-odf-conversion-from-the-command-line).
+
+### What office document formats are supported?
+
+Read/write/convert: **DOCX, ODT, PDF (text input), HTML, Markdown, TXT, SVG** for text documents; **XLSX, ODS, CSV** for spreadsheets; **PPTX, ODP** for presentations; **ODG, SVG, PDF** for vector drawings; **ODF, MathML, LaTeX** for formulas; **ODB** for tabular data. A legacy binary `.doc` reader is also included. Raster rendering produces native **PNG and JPEG**.
+
+### Is libreoffice-rs a drop-in replacement for LibreOffice?
+
+No — and the README is deliberate about this. LibreOffice is a decades-old C++ office suite with features this project does not attempt to replicate (full UI toolkits, printing stack, macro engines, accessibility, scripting, collaboration). `libreoffice-rs` provides a **coherent Rust architecture** and a meaningful subset of real functionality. See [`STATUS.md`](STATUS.md) for the candid feature matrix.
+
+### Can I use libreoffice-rs as a library or only as a CLI?
+
+Both. Every crate (`lo_writer`, `lo_calc`, `lo_impress`, `lo_draw`, `lo_math`, `lo_base`, `lo_odf`, `lo_zip`, `lo_lok`, `lo_app`, …) is a normal Rust library on `crates.io`. The `libreoffice-pure` binary is a thin CLI shell over those crates and the `libreoffice_pure::convert_bytes` / `convert_path_bytes` routers.
+
+### Does it work with WebAssembly, serverless, and sandboxed environments?
+
+Yes. Pure-Rust, std-only, with no `build.rs` C shims and no FFI makes it a good fit for **WASM**, **AWS Lambda**, **Cloudflare Workers (via wasm32-wasi)**, Firecracker microVMs, and minimal container images.
+
+## Maintainer
+
+Built and maintained by **Clark Labs Inc.**

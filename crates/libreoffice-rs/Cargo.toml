@@ -21,14 +21,14 @@ name = "libreoffice-pure"
 path = "src/bin/libreoffice_pure.rs"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.4.3" }
-lo_zip = { path = "../lo_zip", version = "0.4.3" }
-lo_odf = { path = "../lo_odf", version = "0.4.3" }
-lo_writer = { path = "../lo_writer", version = "0.4.3" }
-lo_calc = { path = "../lo_calc", version = "0.4.3" }
-lo_impress = { path = "../lo_impress", version = "0.4.3" }
-lo_draw = { path = "../lo_draw", version = "0.4.3" }
-lo_math = { path = "../lo_math", version = "0.4.3" }
-lo_base = { path = "../lo_base", version = "0.4.3" }
-lo_uno = { path = "../lo_uno", version = "0.4.3" }
-lo_app = { path = "../lo_app", version = "0.4.3" }
+lo_core = { path = "../lo_core", version = "0.4.4" }
+lo_zip = { path = "../lo_zip", version = "0.4.4" }
+lo_odf = { path = "../lo_odf", version = "0.4.4" }
+lo_writer = { path = "../lo_writer", version = "0.4.4" }
+lo_calc = { path = "../lo_calc", version = "0.4.4" }
+lo_impress = { path = "../lo_impress", version = "0.4.4" }
+lo_draw = { path = "../lo_draw", version = "0.4.4" }
+lo_math = { path = "../lo_math", version = "0.4.4" }
+lo_base = { path = "../lo_base", version = "0.4.4" }
+lo_uno = { path = "../lo_uno", version = "0.4.4" }
+lo_app = { path = "../lo_app", version = "0.4.4" }
