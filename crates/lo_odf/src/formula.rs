@@ -3,7 +3,7 @@ use std::path::Path;
 use lo_core::{FormulaDocument, Result};
 use lo_math::to_mathml_string;
 
-use crate::common::{package_document, MIME_ODF};
+use crate::common::{package_document, package_document_bytes, MIME_ODF};
 
 pub fn serialize_formula_document(document: &FormulaDocument) -> String {
     // ODF formula documents use math:math as the top-level element of
@@ -30,4 +30,15 @@ pub fn serialize_formula_document(document: &FormulaDocument) -> String {
 pub fn save_formula_document(path: impl AsRef<Path>, document: &FormulaDocument) -> Result<()> {
     let content = serialize_formula_document(document);
     package_document(path, MIME_ODF, content, &document.meta, Vec::new())
+}
+
+/// Serialize a formula document to an ODF `.odf` byte stream.
+///
+/// Identical layout to [`save_formula_document`] but returns the package as
+/// bytes so the `convert --to odf` router and the library
+/// `libreoffice_pure::math_convert_bytes` helper can route math documents
+/// through ODF without touching the filesystem.
+pub fn save_formula_document_bytes(document: &FormulaDocument) -> Result<Vec<u8>> {
+    let content = serialize_formula_document(document);
+    package_document_bytes(MIME_ODF, content, &document.meta, Vec::new())
 }

@@ -9,6 +9,6 @@ description = "Spreadsheet formula parser/evaluator and CSV conversion"
 readme = "README.md"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.4.4" }
-lo_odf = { path = "../lo_odf", version = "0.4.4" }
-lo_zip = { path = "../lo_zip", version = "0.4.4" }
+lo_core = { path = "../lo_core", version = "0.4.5" }
+lo_odf = { path = "../lo_odf", version = "0.4.5" }
+lo_zip = { path = "../lo_zip", version = "0.4.5" }

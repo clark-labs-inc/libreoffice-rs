@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use lo_core::{escape_text, Metadata, Result, XmlBuilder};
-use lo_zip::{write_zip_file, ZipEntry};
+use lo_zip::{write_zip_file, write_zip_to_vec, ZipEntry};
 
 pub const MIME_ODT: &str = "application/vnd.oasis.opendocument.text";
 pub const MIME_ODS: &str = "application/vnd.oasis.opendocument.spreadsheet";
@@ -296,13 +296,12 @@ pub fn manifest_xml(mimetype: &str, extras: &[ExtraFile]) -> String {
     xml.finish()
 }
 
-pub fn package_document(
-    path: impl AsRef<Path>,
+fn build_package_entries(
     mimetype: &str,
     content_xml: String,
     meta: &Metadata,
     extras: Vec<ExtraFile>,
-) -> Result<()> {
+) -> Vec<ZipEntry> {
     let mut entries = Vec::new();
     entries.push(ZipEntry::new("mimetype", mimetype.as_bytes().to_vec()));
     entries.push(ZipEntry::new("content.xml", content_xml.into_bytes()));
@@ -316,7 +315,31 @@ pub fn package_document(
     for extra in extras {
         entries.push(ZipEntry::new(extra.path, extra.data));
     }
+    entries
+}
+
+pub fn package_document(
+    path: impl AsRef<Path>,
+    mimetype: &str,
+    content_xml: String,
+    meta: &Metadata,
+    extras: Vec<ExtraFile>,
+) -> Result<()> {
+    let entries = build_package_entries(mimetype, content_xml, meta, extras);
     write_zip_file(path, &entries)
+}
+
+/// Serialize an ODF package to bytes. Mirrors [`package_document`] but
+/// returns the archive as a `Vec<u8>` instead of writing to disk, so byte
+/// stream converters (`lo_odf::save_*_bytes`) can reuse the same layout.
+pub fn package_document_bytes(
+    mimetype: &str,
+    content_xml: String,
+    meta: &Metadata,
+    extras: Vec<ExtraFile>,
+) -> Result<Vec<u8>> {
+    let entries = build_package_entries(mimetype, content_xml, meta, extras);
+    write_zip_to_vec(&entries)
 }
 
 pub fn image_extras(images: Vec<(String, String, Vec<u8>)>) -> Vec<ExtraFile> {

@@ -20,7 +20,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.4.4"
+version = "0.4.5"
 authors = ["Stan Kirdey"]
 repository = "https://github.com/clark-labs-inc/libreoffice-rs"
 description = "A pure-Rust LibreOffice-inspired workspace"

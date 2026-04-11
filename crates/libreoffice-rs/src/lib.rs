@@ -200,10 +200,17 @@ pub fn draw_convert_bytes(input: &[u8], from: &str, to: &str) -> Result<Vec<u8>>
 }
 
 /// Convert a math-format byte stream from `from` to `to`.
+///
+/// The generic `lo_math::save_as` handles `mathml`/`svg`/`pdf`. The ODF
+/// formula package (`.odf`) lives in `lo_odf` — we route it here so the
+/// `convert --to odf` router stays consistent with every other family.
 pub fn math_convert_bytes(input: &[u8], from: &str, to: &str) -> Result<Vec<u8>> {
     let from = canonical_format_hint(from);
     let to = canonical_format_hint(to);
     let document = lo_math::load_bytes("formula", input, &from)?;
+    if to == "odf" {
+        return lo_odf::save_formula_document_bytes(&document);
+    }
     lo_math::save_as(&document, &to)
 }
 

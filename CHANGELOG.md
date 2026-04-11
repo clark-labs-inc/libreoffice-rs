@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.4.5 — Full evidence benchmark + `math → odf` convert router
+
+### `math → odf` via the generic convert router
+
+`libreoffice_pure::math_convert_bytes` now special-cases `to == "odf"` and
+routes through a new `lo_odf::save_formula_document_bytes` (which shares
+its layout with `save_formula_document` via a new
+`package_document_bytes` helper in `lo_odf::common`). Previously
+`convert --to odf` on a math input returned
+`Unsupported("math format not supported: odf")` because `lo_math::save_as`
+deliberately only handles `mathml` / `svg` / `pdf` — ODF formula packaging
+lives in `lo_odf` to keep the dependency arrow pointing one way. The new
+router closes the loop so the generic `convert` CLI, `convert_bytes`, and
+`convert_bytes_auto` can all land a formula straight into an ODF archive
+that real LibreOffice loads as a Math document.
+
+Three new tests in `crates/libreoffice-rs/tests/math_convert.rs` cover
+`latex → odf`, `mathml → odf`, and `odf → odf` round-trips. `cargo test
+--workspace` reports **116 passed / 0 failed** (up from 113).
+
+### Full Evidence Benchmark (`tests/full_evidence_benchmark.sh`)
+
+A new end-to-end script exercises every supported feature, saves every
+produced file to `benchmark_evidence/` for manual inspection, and scores
+output against real LibreOffice.
+
+- **Conversion matrix**: 193 attempts across Writer / Calc / Impress /
+  Draw / Math / Base, covering every supported `(from, to)` pair per
+  family. Result: **193 / 193 pass** after the `math → odf` fix (was
+  190 / 193).
+- **Pipeline commands**: `docx-to-{pdf,md,pngs,jpegs}`,
+  `pptx-to-{pdf,md,pngs,jpegs}`, `xlsx-{recalc,recalc-check,to-md}`,
+  `accept-changes`, `doc-to-docx`, `--headless --convert-to`,
+  `office-demo`, `desktop-demo`, `package inspect`, formula `eval`,
+  SQL `query`.
+- **Real-world corpus**: US Census Bureau XLSX (state + county
+  population 2020-2023), US CDC COVID-19 Deaths CSV (25 MB),
+  python-openxml / PHPWord / PHPSpreadsheet / python-pptx / Calibre
+  fixtures. Tracked-changes DOCX synthesized via Python zipfile
+  (mirrors the unit-test fixtures) because no reliable public sample
+  exists. Legacy `.doc` generated via `soffice --convert-to doc` so
+  the round-trip test uses a real Word 97-2003 binary container.
+- **Quality vs real LibreOffice**: DOCX PDF text Jaccard mean 99.0%
+  (5 / 7 fixtures at 100 %), XLSX CSV mean 100 % across all real
+  corpus files, PPTX text Jaccard varies from 42-100 % (charts are
+  rendered differently).
+- `.gitignore` now excludes `/benchmark_evidence` so the ~560 MB of
+  outputs never land in git.
+
+BLS XLSX endpoints return HTTP 403 (Akamai-blocked) regardless of the
+User-Agent, so Census URLs are used for the US government XLSX corpus
+and the failure is documented in the run log.
+
 ## 0.4.3 — Native PDF input
 
 `lo_core::pdf` now ships a dependency-free PDF reader alongside the existing
