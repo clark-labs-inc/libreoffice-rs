@@ -25,7 +25,7 @@ See [`CHANGELOG.md`](CHANGELOG.md) for per-version details.
 
 - **No LibreOffice install required.** Convert DOCX → PDF, XLSX → CSV, PPTX → Markdown, and Markdown → DOCX directly from Rust — no `soffice` subprocess, no headless Java, no native dependencies.
 - **Pure Rust, std only.** Every crate compiles with just `cargo build` on a stock Rust toolchain. No `build.rs` C shims, no `bindgen`, no system libraries. Drop-in for WASM, sandboxes, serverless, and minimal containers.
-- **Fast.** 15–51× faster than driving real LibreOffice for typical generate/convert workloads (see benchmarks below).
+- **Fast.** **10–187× faster** than driving real LibreOffice across the full N×M conversion matrix — **mean ~116× across 63 head-to-head format pairs** on the same inputs (realistic fixtures typically 10–30×, small synthetic inputs 100–180× because LibreOffice's ~700 ms process startup dominates). See benchmarks below.
 - **Honest.** This is **not** a full replacement for LibreOffice. The [Project status](#project-status-not-feature-parity-with-libreoffice) section says exactly what works and what doesn't.
 
 ## Project status: not feature-parity with LibreOffice
@@ -59,6 +59,64 @@ libreoffice-rs generates documents **15-43× faster** than LibreOffice processes
 | EN ODT → PDF (real LibreOffice render) | 231ms | 1,492ms | **6×** |
 | ZH ODT → PDF (real LibreOffice render) | 18ms | 779ms | **43×** |
 | ES ODT → PDF (real LibreOffice render) | 18ms | 664ms | **37×** |
+
+### Full N×M Conversion Matrix (libreoffice-rs vs LibreOffice)
+
+`tests/matrix_speed_comparison.py` runs every supported *(from → to)* format
+pair through **both** engines on the same inputs and records wall-clock time.
+Latest run — **111 format pairs**, Apple Silicon, **LibreOffice 26.2.2.2** as
+the reference, sequential invocations after one warm-up:
+
+- libreoffice-rs succeeded on **111 / 111** pairs
+- LibreOffice succeeded on **63 / 76** of the pairs its CLI attempts; the
+  remaining **35 pairs** use formats `soffice --convert-to` cannot produce
+  at all (`md`, `mathml`, Math `odf`, `odb`)
+- **Head-to-head (n = 63):** libreoffice-rs **14 ms** vs LibreOffice **816 ms**
+  — mean speedup **115.8×**, range **9.9×–187×**
+
+| Family | Pairs | libreoffice-rs mean | LibreOffice mean | Mean speedup | Range |
+|---|---:|---:|---:|---:|---|
+| writer  | 27 | 23 ms |   955 ms | **122×** |  10×–187× |
+| calc    | 20 |  7 ms |   671 ms | **111×** |  59×–148× |
+| impress | 10 | 12 ms |   766 ms |  **95×** |  35×–162× |
+| draw    |  6 |  5 ms |   752 ms | **139×** | 107×–164× |
+| math    |  — |   —   |    —     |    —     | `soffice --convert-to` does not support MathML / LaTeX / ODF-Math |
+| base    |  — |   —   |    —     |    —     | `soffice --convert-to` does not support ODB |
+
+Representative rows (full table in
+[`benchmark_evidence/matrix_speed_comparison.md`](benchmark_evidence/matrix_speed_comparison.md),
+raw TSV in
+[`benchmark_evidence/matrix_speed_comparison.tsv`](benchmark_evidence/matrix_speed_comparison.tsv)):
+
+| Input | from → to | libreoffice-rs | LibreOffice | Speedup |
+|---|---|---:|---:|---:|
+| fixture-calibre-demo.docx (real-world) | `docx` → `pdf`  |  79 ms | 1,126 ms |  **14×** |
+| fixture-calibre-demo.docx              | `docx` → `odt`  |  74 ms | 2,073 ms |  **28×** |
+| fixture-calibre-demo.docx              | `docx` → `docx` |  74 ms | 1,168 ms |  **16×** |
+| fixture-python-pptx-datalabels.pptx    | `pptx` → `pdf`  |  20 ms |   750 ms |  **37×** |
+| fixture-python-pptx-datalabels.pptx    | `pptx` → `odp`  |  20 ms |   867 ms |  **44×** |
+| gov-census-state-pop.xlsx              | `xlsx` → `pdf`  |  10 ms |   650 ms |  **65×** |
+| gov-census-state-pop.xlsx              | `xlsx` → `csv`  |  10 ms |   649 ms |  **65×** |
+| synthetic.docx                         | `docx` → `odt`  |   5 ms |   967 ms | **187×** |
+| synthetic.odt                          | `odt`  → `pdf`  |   5 ms |   822 ms | **155×** |
+| synthetic.xlsx                         | `xlsx` → `ods`  |   5 ms |   750 ms | **142×** |
+| synthetic.odp                          | `odp`  → `pdf`  |   5 ms |   741 ms | **161×** |
+| synthetic.odg                          | `odg`  → `pdf`  |   5 ms |   790 ms | **144×** |
+| synthetic.svg                          | `svg`  → `odg`  |   5 ms |   803 ms | **164×** |
+
+Observations:
+
+- **Realistic fixtures (tens to thousands of KB) land in the 10–80× band.**
+  libreoffice-rs still beats LibreOffice by an order of magnitude once the
+  document actually has content to parse.
+- **Small synthetic inputs land in the 100–180× band** because LibreOffice's
+  ~700 ms process / profile startup dominates the per-conversion wall-clock.
+- libreoffice-rs handles **35 pairs** whose formats the `soffice --convert-to`
+  CLI does not produce or accept at all (every Markdown / LaTeX / MathML input,
+  every Markdown / MathML / ODF-Math / ODB output).
+- On **13 additional pairs** the LibreOffice CLI attempts the conversion but
+  errors out (Writer/Calc `svg` output, `html→docx`, and `pdf→{txt,odt,docx}`),
+  while libreoffice-rs completes them successfully.
 
 ### Importer Microbenchmarks
 
@@ -149,6 +207,10 @@ bash tests/desktop_demo_integration.sh   # 38 assertions  (lo_app desktop surfac
 
 # Full performance + accuracy benchmark
 bash tests/benchmark.sh                  # 88 assertions
+
+# Full N×M conversion matrix vs real LibreOffice (times both engines
+# on every supported from→to pair; writes matrix_speed_comparison.{tsv,md})
+python3 tests/matrix_speed_comparison.py # 111 format pairs
 
 # Comprehensive 1:1 quality benchmark vs real LibreOffice (downloads 13 public
 # DOCX/PPTX/XLSX fixtures from python-docx, scanny/python-pptx, PHPOffice and

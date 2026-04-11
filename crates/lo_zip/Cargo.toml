@@ -9,4 +9,4 @@ description = "Minimal pure-Rust ZIP reader/writer for ODF packages"
 readme = "README.md"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.4.5" }
+lo_core = { path = "../lo_core", version = "0.4.6" }

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.6 — Full N×M speed matrix vs real LibreOffice
+
+A new `tests/matrix_speed_comparison.py` runs every supported
+`(from → to)` format pair through **both** libreoffice-rs and real
+LibreOffice on the same inputs, records wall-clock time, and writes
+`benchmark_evidence/matrix_speed_comparison.{tsv,md}`.
+
+Latest run (LibreOffice 26.2.2.2 as reference, Apple Silicon, sequential
+invocations after one warm-up):
+
+- **111 format pairs** measured, libreoffice-rs **111 / 111 OK**
+- LibreOffice CLI **63 / 76 OK** on the pairs it attempts; **35 pairs**
+  use formats `soffice --convert-to` cannot produce or accept at all
+  (Markdown / LaTeX / MathML inputs, Markdown / MathML / ODF-Math / ODB
+  outputs), and on **13 more pairs** the CLI tries and errors out
+  (Writer/Calc `svg` output, `html→docx`, `pdf→{txt,odt,docx}`) while
+  libreoffice-rs completes them.
+- **Head-to-head (n=63)**: libreoffice-rs **14 ms** vs LibreOffice
+  **816 ms**, mean speedup **115.8×**, range **9.9×–187×**.
+- Per family: writer **122× / 27 pairs**, calc **111× / 20 pairs**,
+  impress **95× / 10 pairs**, draw **139× / 6 pairs**.
+
+The new benchmark block in the root `README.md` documents the per-family
+breakdown, representative rows (real fixtures + synthetic), and the
+10–80× / 100–180× bands (realistic vs small inputs — LibreOffice's
+~700 ms process startup dominates small-doc comparisons).
+
+No library changes; this release is a docs + benchmark-script update.
+
 ## 0.4.5 — Full evidence benchmark + `math → odf` convert router
 
 ### `math → odf` via the generic convert router

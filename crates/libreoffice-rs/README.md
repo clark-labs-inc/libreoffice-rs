@@ -31,7 +31,25 @@ Tested against **LibreOffice 26.2.2** on macOS (Apple Silicon). All generated do
 
 ### Speed Comparison
 
-libreoffice-rs generates documents **19-62× faster** than LibreOffice processes them. Sample numbers from `tests/benchmark.sh`:
+libreoffice-rs converts documents **10–187× faster** than driving real
+LibreOffice, with a **mean ~116× speedup across 63 head-to-head format
+pairs** on the same inputs. `tests/matrix_speed_comparison.py` runs every
+supported `(from → to)` pair through both engines and writes a full
+benchmark report to `benchmark_evidence/matrix_speed_comparison.md`.
+
+Per-family means from the latest run (LibreOffice 26.2.2.2, Apple Silicon):
+
+| Family | Pairs | libreoffice-rs mean | LibreOffice mean | Mean speedup |
+|---|---:|---:|---:|---:|
+| writer  | 27 | 23 ms |   955 ms | **122×** |
+| calc    | 20 |  7 ms |   671 ms | **111×** |
+| impress | 10 | 12 ms |   766 ms |  **95×** |
+| draw    |  6 |  5 ms |   752 ms | **139×** |
+
+Realistic fixtures (tens to thousands of KB) land in the 10–80× band;
+small synthetic inputs land in the 100–180× band because LibreOffice's
+~700 ms process / profile startup dominates the per-conversion wall-clock.
+Additional per-generator numbers from `tests/benchmark.sh`:
 
 | Operation | libreoffice-rs | LibreOffice | Speedup |
 |-----------|---------------|-------------|---------|
@@ -116,6 +134,9 @@ bash tests/desktop_demo_integration.sh   # 38 assertions  (lo_app desktop surfac
 
 # Full performance + accuracy benchmark
 bash tests/benchmark.sh                  # 88 assertions
+
+# Full N×M conversion matrix vs real LibreOffice
+python3 tests/matrix_speed_comparison.py # 111 format pairs
 ```
 
 Requires LibreOffice installed (`brew install --cask libreoffice` on macOS).

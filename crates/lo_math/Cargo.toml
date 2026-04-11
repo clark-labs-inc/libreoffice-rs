@@ -9,8 +9,8 @@ description = "LaTeX formula parser with MathML and ODF emission"
 readme = "README.md"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.4.5" }
-lo_zip = { path = "../lo_zip", version = "0.4.5" }
+lo_core = { path = "../lo_core", version = "0.4.6" }
+lo_zip = { path = "../lo_zip", version = "0.4.6" }
 
 [dev-dependencies]
 lo_odf = { path = "../lo_odf" }

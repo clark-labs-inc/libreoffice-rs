@@ -9,6 +9,6 @@ description = "ODF package serializers for text, spreadsheet, presentation, draw
 readme = "README.md"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.4.5" }
-lo_zip = { path = "../lo_zip", version = "0.4.5" }
-lo_math = { path = "../lo_math", version = "0.4.5" }
+lo_core = { path = "../lo_core", version = "0.4.6" }
+lo_zip = { path = "../lo_zip", version = "0.4.6" }
+lo_math = { path = "../lo_math", version = "0.4.6" }
