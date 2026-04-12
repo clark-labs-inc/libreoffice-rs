@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.7 — README overhaul: crates.io badges, CLI quick-start, reduced verbosity
+
+- Added crates.io / docs.rs badges and links to both root and crate READMEs
+- New "Quick start" section showing `cargo install` and common CLI workflows
+- Significantly reduced README verbosity (366 → ~140 lines): collapsed
+  per-feature accuracy, microbenchmarks, multilingual, and test-suite
+  sections into concise summaries; moved crate layout into a `<details>` block
+- Condensed FAQ to three essential entries
+- Version bump to 0.4.7 for crates.io publish
+
 ## 0.4.6 — Full N×M speed matrix vs real LibreOffice
 
 A new `tests/matrix_speed_comparison.py` runs every supported
