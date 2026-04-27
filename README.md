@@ -151,6 +151,6 @@ An [Agent Skill](https://agentskills.io/specification) bundle lives in [`skills/
 
 ## Maintainer
 
-Built and maintained by **Clark Labs Inc.**
+Built by **Clark Labs Inc.** — makers of [Clark Agent](https://clarkchat.com), an AI agent for websites, research, and automation.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for per-version details.
