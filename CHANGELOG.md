@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.8 — Citation authorship metadata
+
+- Added machine-readable citation metadata naming Stanislav Kirdey, Clark Labs Inc.
+- Updated crates.io author metadata across the workspace.
+- Version bump to 0.4.8 for crates.io publish.
+
 ## 0.4.7 — README overhaul: crates.io badges, CLI quick-start, reduced verbosity
 
 - Added crates.io / docs.rs badges and links to both root and crate READMEs

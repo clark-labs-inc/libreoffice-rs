@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use libreoffice-rs, please cite it using the metadata from this file."
+title: "libreoffice-rs"
+authors:
+  - family-names: "Kirdey"
+    given-names: "Stanislav"
+    affiliation: "Clark Labs Inc."
+version: "0.4.8"
+date-released: "2026-05-28"
+repository-code: "https://github.com/clark-labs-inc/libreoffice-rs"
+license: "MIT"

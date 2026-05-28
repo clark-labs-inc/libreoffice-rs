@@ -149,8 +149,12 @@ Yes. Pure Rust, std-only, no `build.rs` / FFI / system libraries.
 
 An [Agent Skill](https://agentskills.io/specification) bundle lives in [`skills/libreoffice-rs/`](skills/libreoffice-rs/). Drop it into your agent's skills path and it will know how to drive `libreoffice-pure` for document conversion, rendering, and extraction.
 
+## Citation
+
+Citation authorship: Stanislav Kirdey, Clark Labs Inc. See [`CITATION.cff`](CITATION.cff) for machine-readable citation metadata.
+
 ## Maintainer
 
-Built by **Clark Labs Inc.** — makers of [Clark Agent](https://clarkchat.com), an AI agent for websites, research, and automation.
+Built by **Stanislav Kirdey, Clark Labs Inc.** — makers of [Clark Agent](https://clarkchat.com), an AI agent for websites, research, and automation.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for per-version details.
