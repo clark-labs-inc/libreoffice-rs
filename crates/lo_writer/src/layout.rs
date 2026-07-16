@@ -224,10 +224,17 @@ fn render_list(
         } else {
             "•".to_string()
         };
-        y = ensure_room(ctx, pdf, page_index, y, 16.0);
+        y = ensure_room(ctx, pdf, page_index, y, 17.0);
+        let marker_baseline = y - 15.0;
         pdf.page_mut(*page_index)
             .expect("page")
-            .text(ctx.margin_l + 2.0, y, 12.0, PdfFont::Helvetica, &marker);
+            .text(
+                ctx.margin_l + 2.0,
+                marker_baseline,
+                12.0,
+                PdfFont::Helvetica,
+                &marker,
+            );
         y = render_list_item(ctx, pdf, page_index, y, item);
         y -= 2.0;
     }
@@ -288,6 +295,10 @@ fn render_paragraph(
     for (line_index, line) in lines.iter().enumerate() {
         let line_height = line_heights[line_index];
         y = ensure_room(ctx, pdf, page_index, y, line_height + 2.0);
+        // `y` is the free block boundary; PDF text APIs take a baseline.
+        // Descend by one line box before drawing so glyph ascenders never
+        // intrude into the preceding table, paragraph, or page margin.
+        y -= line_height;
         let justify = matches!(paragraph.style.alignment, Alignment::Justify)
             && line_index + 1 < lines.len();
         render_line(
@@ -299,7 +310,6 @@ fn render_paragraph(
             available_width,
             justify,
         );
-        y -= line_height;
     }
 
     y - margin_bottom

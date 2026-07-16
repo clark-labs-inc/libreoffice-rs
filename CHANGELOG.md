@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.10 - Writer vertical rhythm correction
+
+- Treated the vertical layout cursor as a block boundary rather than a text baseline, preventing headings from intruding into preceding table borders.
+- Aligned list-marker baselines with their item text after the block-boundary correction.
+- Re-rendered and visually inspected the full two-page dossier regression on every page.
+
 ## 0.4.9 - Writer PDF layout correctness
 
 - Removed the synthetic `document` heading from Markdown, HTML, and text PDF conversion.
