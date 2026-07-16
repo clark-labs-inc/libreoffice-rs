@@ -6,6 +6,7 @@
 //! larger set of base fonts.
 
 use crate::pdf::pdf_from_objects;
+use crate::pdf::pdf_escape_win_ansi;
 use crate::{LoError, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,7 +85,7 @@ impl PdfPage {
         self.commands
             .push_str(&format!("1 0 0 1 {:.2} {:.2} Tm\n", x, y));
         self.commands.push('(');
-        self.commands.push_str(&pdf_escape(text));
+        self.commands.push_str(&pdf_escape_win_ansi(text));
         self.commands.push_str(") Tj\nET\n0 0 0 rg\n");
     }
 
@@ -297,7 +298,7 @@ impl PdfDocument {
             PdfFont::TimesItalic,
         ] {
             objects.push(format!(
-                "<< /Type /Font /Subtype /Type1 /BaseFont /{} >>",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /{} /Encoding /WinAnsiEncoding >>",
                 font.base_font()
             ));
         }
@@ -325,55 +326,6 @@ impl PdfDocument {
         );
         pdf_from_objects(&objects)
     }
-}
-
-fn pdf_escape(value: &str) -> String {
-    // Transliterate the typographic Unicode punctuation real-world DOCX
-    // files routinely use into the closest ASCII equivalents. The built-in
-    // Type1 fonts used by `PdfDocument` (Helvetica/Times/Courier with
-    // StandardEncoding) cannot represent these code points, so emitting
-    // their UTF-8 bytes directly produces glyph holes that `pdftotext`
-    // either drops or splits awkwardly. ASCII equivalents survive the
-    // round-trip and match what the LibreOffice CLI ends up extracting.
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        let mapped: &str = match ch {
-            '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{2032}' => "'",
-            '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{2033}' => "\"",
-            '\u{2013}' | '\u{2014}' | '\u{2212}' => "-",
-            '\u{2026}' => "...",
-            '\u{00A0}' | '\u{2007}' | '\u{202F}' => " ",
-            // Tab characters get rendered as wide whitespace so
-            // `pdftotext` reliably treats them as a word break
-            // (PDF tab escape would be valid but is rendered as
-            // zero-width by some viewers).
-            '\t' => "    ",
-            '\u{00AD}' => "",
-            '\u{2022}' => "*",
-            _ => {
-                if ch == '\\' {
-                    out.push('\\');
-                    out.push('\\');
-                } else if ch == '(' {
-                    out.push('\\');
-                    out.push('(');
-                } else if ch == ')' {
-                    out.push('\\');
-                    out.push(')');
-                } else if (ch as u32) < 0x80 {
-                    out.push(ch);
-                } else {
-                    // Out-of-range chars: emit nothing rather than raw
-                    // UTF-8 bytes that the StandardEncoding font can't
-                    // map. The Markdown / text extraction paths still see
-                    // the original character upstream of this layer.
-                }
-                continue;
-            }
-        };
-        out.push_str(mapped);
-    }
-    out
 }
 
 fn empty_pdf() -> Vec<u8> {

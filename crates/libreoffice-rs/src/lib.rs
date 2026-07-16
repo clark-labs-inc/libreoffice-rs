@@ -171,7 +171,10 @@ fn family_for_source(source: &str) -> Option<Family> {
 pub fn writer_convert_bytes(input: &[u8], from: &str, to: &str) -> Result<Vec<u8>> {
     let from = canonical_format_hint(from);
     let to = canonical_format_hint(to);
-    let doc = lo_writer::load_bytes("document", input, &from)?;
+    // The source label is metadata, not document content. A fixed non-empty
+    // title used to be painted as a synthetic `document` heading in every
+    // Markdown/HTML/TXT PDF export.
+    let doc = lo_writer::load_bytes("", input, &from)?;
     lo_writer::save_as(&doc, &to)
 }
 

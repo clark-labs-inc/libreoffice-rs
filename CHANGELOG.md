@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.9 - Writer PDF layout correctness
+
+- Removed the synthetic `document` heading from Markdown, HTML, and text PDF conversion.
+- Switched Writer PDF layout to exact Base-14 font metrics so mixed bold, italic, link, and plain runs keep correct spacing.
+- Added WinAnsi PDF encoding for Western accented text and typographic punctuation instead of silently dropping glyphs.
+- Kept short paragraphs and lists together across page boundaries to prevent stranded continuation lines and orphaned list items.
+- Added a dossier-style visual regression fixture and end-to-end PDF assertions.
+
 ## 0.4.8 — Citation authorship metadata
 
 - Added machine-readable citation metadata naming Stanislav Kirdey, Clark Labs Inc.

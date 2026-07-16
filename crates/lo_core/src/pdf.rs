@@ -15,11 +15,61 @@ use crate::{LoError, Result};
 // Writer surface kept for backward compatibility.
 // ---------------------------------------------------------------------------
 
-fn pdf_escape(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('(', "\\(")
-        .replace(')', "\\)")
+pub(crate) fn pdf_escape_win_ansi(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '(' => out.push_str("\\("),
+            ')' => out.push_str("\\)"),
+            '\t' => out.push_str("    "),
+            '\u{00AD}' => {}
+            _ => {
+                let byte = win_ansi_byte(ch).unwrap_or(b'?');
+                if byte.is_ascii_graphic() || byte == b' ' {
+                    out.push(byte as char);
+                } else {
+                    out.push_str(&format!("\\{byte:03o}"));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn win_ansi_byte(ch: char) -> Option<u8> {
+    match ch {
+        '\u{20AC}' => Some(0x80),
+        '\u{201A}' => Some(0x82),
+        '\u{0192}' => Some(0x83),
+        '\u{201E}' => Some(0x84),
+        '\u{2026}' => Some(0x85),
+        '\u{2020}' => Some(0x86),
+        '\u{2021}' => Some(0x87),
+        '\u{02C6}' => Some(0x88),
+        '\u{2030}' => Some(0x89),
+        '\u{0160}' => Some(0x8A),
+        '\u{2039}' => Some(0x8B),
+        '\u{0152}' => Some(0x8C),
+        '\u{017D}' => Some(0x8E),
+        '\u{2018}' => Some(0x91),
+        '\u{2019}' => Some(0x92),
+        '\u{201C}' => Some(0x93),
+        '\u{201D}' => Some(0x94),
+        '\u{2022}' => Some(0x95),
+        '\u{2013}' => Some(0x96),
+        '\u{2014}' | '\u{2212}' => Some(0x97),
+        '\u{02DC}' => Some(0x98),
+        '\u{2122}' => Some(0x99),
+        '\u{0161}' => Some(0x9A),
+        '\u{203A}' => Some(0x9B),
+        '\u{0153}' => Some(0x9C),
+        '\u{017E}' => Some(0x9E),
+        '\u{0178}' => Some(0x9F),
+        '\u{00A0}'..='\u{00FF}' => Some(ch as u8),
+        _ if ch.is_ascii() => Some(ch as u8),
+        _ => None,
+    }
 }
 
 /// Build a self-contained single-page text PDF.
@@ -37,7 +87,7 @@ pub fn write_text_pdf(lines: &[String], page_width: Length, page_height: Length)
             content.push_str("T*\n");
         }
         content.push('(');
-        content.push_str(&pdf_escape(line));
+        content.push_str(&pdf_escape_win_ansi(line));
         content.push_str(") Tj\n");
     }
     content.push_str("ET\n");
@@ -48,7 +98,8 @@ pub fn write_text_pdf(lines: &[String], page_width: Length, page_height: Length)
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width_pt:.2} {height_pt:.2}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
         ),
         format!("<< /Length {} >>\nstream\n{}endstream", content.len(), content),
-        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_string(),
     ];
     pdf_from_objects(&objects)
 }

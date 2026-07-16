@@ -15,6 +15,8 @@ use lo_core::{
     PdfFont, Table, TableCell, TextDocument,
 };
 
+use crate::font_metrics::measure_text;
+
 #[derive(Clone, Debug)]
 struct StyledRun {
     text: String,
@@ -58,7 +60,7 @@ pub fn render_document_pdf(doc: &TextDocument) -> Vec<u8> {
             pdf.page_mut(page_index).expect("page"),
             &LineLayout {
                 runs: vec![title_run],
-                width: measure_text(&doc.meta.title, 22.0),
+                width: measure_text(&doc.meta.title, 22.0, PdfFont::HelveticaBold),
             },
             ctx.margin_l,
             y,
@@ -171,6 +173,10 @@ fn render_heading(
         4 => 14.0,
         _ => 13.0,
     };
+    // Keep a heading with at least the first two lines of following content.
+    // This is deliberately conservative: the full following paragraph applies
+    // its own keep-together rule in `render_paragraph`.
+    y = ensure_room(ctx, pdf, page_index, y, size * 3.5);
     let mut paragraph = heading.content.clone();
     paragraph.text_style.font_size_pt = size.round() as u16;
     paragraph.text_style.bold = true;
@@ -187,6 +193,31 @@ fn render_list(
     mut y: f32,
     list: &ListBlock,
 ) -> f32 {
+    let available_width = (ctx.page_w - ctx.margin_l - ctx.margin_r - 18.0).max(48.0);
+    let list_height = list
+        .items
+        .iter()
+        .flat_map(|item| item.blocks.iter())
+        .filter_map(|block| match block {
+            Block::Paragraph(paragraph) => Some(paragraph_height(
+                paragraph,
+                12.0,
+                available_width,
+                &ctx.fonts,
+            )),
+            _ => None,
+        })
+        .sum::<f32>()
+        + list.items.len() as f32 * 4.0
+        + 4.0;
+    let content_height = ctx.page_h - ctx.margin_t - ctx.margin_b;
+    if list_height <= content_height
+        && y - list_height < ctx.margin_b
+        && y < ctx.page_h - ctx.margin_t
+    {
+        *page_index = pdf.add_page(ctx.page_w, ctx.page_h);
+        y = ctx.page_h - ctx.margin_t;
+    }
     for (index, item) in list.items.iter().enumerate() {
         let marker = if list.ordered {
             format!("{}.", index + 1)
@@ -232,16 +263,30 @@ fn render_paragraph(
     let available_width = (ctx.page_w - left - right).max(48.0);
     let margin_top = mm_to_pt(paragraph.style.margin_top_mm);
     let margin_bottom = mm_to_pt(paragraph.style.margin_bottom_mm.max(1));
-    y -= margin_top;
-
     let runs = paragraph_runs(paragraph, default_size, &ctx.fonts);
     let lines = layout_runs(&runs, available_width);
+    let line_heights = lines
+        .iter()
+        .map(|line| {
+            line.runs
+                .iter()
+                .map(|run| run.size * 1.25)
+                .fold(default_size * 1.25, f32::max)
+        })
+        .collect::<Vec<_>>();
+    let total_height = margin_top + line_heights.iter().sum::<f32>() + margin_bottom;
+    let content_height = ctx.page_h - ctx.margin_t - ctx.margin_b;
+    if total_height <= content_height
+        && y - total_height < ctx.margin_b
+        && y < ctx.page_h - ctx.margin_t
+    {
+        *page_index = pdf.add_page(ctx.page_w, ctx.page_h);
+        y = ctx.page_h - ctx.margin_t;
+    }
+    y -= margin_top;
+
     for (line_index, line) in lines.iter().enumerate() {
-        let line_height = line
-            .runs
-            .iter()
-            .map(|run| run.size * 1.25)
-            .fold(default_size * 1.25, f32::max);
+        let line_height = line_heights[line_index];
         y = ensure_room(ctx, pdf, page_index, y, line_height + 2.0);
         let justify = matches!(paragraph.style.alignment, Alignment::Justify)
             && line_index + 1 < lines.len();
@@ -258,6 +303,26 @@ fn render_paragraph(
     }
 
     y - margin_bottom
+}
+
+fn paragraph_height(
+    paragraph: &Paragraph,
+    default_size: f32,
+    available_width: f32,
+    fonts: &FontResolver,
+) -> f32 {
+    let lines = layout_runs(&paragraph_runs(paragraph, default_size, fonts), available_width);
+    mm_to_pt(paragraph.style.margin_top_mm)
+        + lines
+            .iter()
+            .map(|line| {
+                line.runs
+                    .iter()
+                    .map(|run| run.size * 1.25)
+                    .fold(default_size * 1.25, f32::max)
+            })
+            .sum::<f32>()
+        + mm_to_pt(paragraph.style.margin_bottom_mm.max(1))
 }
 
 fn render_table(
@@ -279,7 +344,7 @@ fn render_table(
     for row in &table.rows {
         for (index, cell) in row.cells.iter().enumerate() {
             let text = cell_plain_text(cell);
-            let suggested = measure_text(&text, 10.0) + 12.0;
+            let suggested = measure_text(&text, 10.0, PdfFont::Helvetica) + 12.0;
             col_widths[index] = col_widths[index].max(suggested.min(available_width * 0.55));
         }
     }
@@ -406,7 +471,7 @@ fn render_line(
         }
         let group_width: f32 = line.runs[start..idx]
             .iter()
-            .map(|r| measure_text(&r.text, r.size))
+            .map(|r| measure_text(&r.text, r.size, r.font))
             .sum();
         if !combined.is_empty() {
             page.text_rgb(
@@ -500,7 +565,7 @@ fn layout_runs(runs: &[StyledRun], max_width: f32) -> Vec<LineLayout> {
                 lines.push(std::mem::take(&mut current));
                 continue;
             }
-            let token_width = measure_text(&token.text, token.size);
+            let token_width = measure_text(&token.text, token.size, token.font);
             let is_space = token.text.chars().all(|ch| ch.is_whitespace());
             if !current.runs.is_empty() && current.width + token_width > max_width && !is_space {
                 trim_trailing_spaces(&mut current);
@@ -563,7 +628,7 @@ fn tokenize_run(run: &StyledRun) -> Vec<StyledRun> {
 fn trim_trailing_spaces(line: &mut LineLayout) {
     while matches!(line.runs.last(), Some(run) if run.text.chars().all(|ch| ch.is_whitespace())) {
         if let Some(run) = line.runs.pop() {
-            line.width -= measure_text(&run.text, run.size);
+            line.width -= measure_text(&run.text, run.size, run.font);
         }
     }
 }
@@ -599,22 +664,6 @@ fn ensure_room(
         *page_index = pdf.add_page(ctx.page_w, ctx.page_h);
         ctx.page_h - ctx.margin_t
     }
-}
-
-fn measure_text(text: &str, font_size: f32) -> f32 {
-    let mut width = 0.0;
-    for ch in text.chars() {
-        let factor = match ch {
-            'i' | 'l' | '!' | '.' | ',' | ';' | ':' | '|' => 0.26,
-            'm' | 'w' | 'M' | 'W' | '@' | '#' => 0.82,
-            ' ' => 0.28,
-            '0'..='9' => 0.55,
-            _ if ch.is_ascii_uppercase() => 0.62,
-            _ => 0.52,
-        };
-        width += font_size * factor;
-    }
-    width
 }
 
 fn parse_color(input: &str) -> Option<(f32, f32, f32)> {
