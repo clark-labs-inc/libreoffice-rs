@@ -40,8 +40,8 @@ let docx = std::fs::read("report.docx").unwrap();
 let pdf = convert_bytes(&docx, "docx", "pdf").unwrap();
 std::fs::write("report.pdf", pdf).unwrap();
 
-let markdown = std::fs::read_to_string("report.md").unwrap();
-let tagged_pdf = libreoffice_pure::markdown_to_pdf_bytes(&markdown).unwrap();
+let markdown = std::fs::read("report.md").unwrap();
+let tagged_pdf = libreoffice_pure::markdown_to_pdf_bytes("report.md", &markdown).unwrap();
 std::fs::write("report-from-markdown.pdf", tagged_pdf).unwrap();
 ```
 

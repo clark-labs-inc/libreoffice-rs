@@ -33,8 +33,8 @@ pub fn docx_to_pdf_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
     lo_writer::save_as(&doc, "pdf")
 }
 
-/// Convert Markdown bytes to PDF while resolving relative PNG/JPEG images
-/// from the Markdown file's directory.
+/// Convert Markdown bytes to a tagged PDF while resolving relative
+/// SVG/WebP/PNG/JPEG images from the Markdown file's directory.
 pub fn markdown_to_pdf_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> Result<Vec<u8>> {
     let path = path.as_ref();
     let markdown = std::str::from_utf8(bytes)
