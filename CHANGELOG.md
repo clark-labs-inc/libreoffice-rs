@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1 - Restore the supported Rust version floor
+
+- Pinned the pure-Rust WebP dependency to `image` 0.25.5, retaining the rich Markdown feature set while supporting Rust 1.82 builders.
+- Declared Rust 1.82 as the workspace MSRV so future dependency drift is caught during package resolution.
+
 ## 0.5.0 - Rich Markdown PDF and tagged accessibility
 
 - Added the asset-aware `markdown_to_pdf_bytes` API and `markdown-to-pdf` CLI command for polished Markdown artifact export.
