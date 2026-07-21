@@ -30,7 +30,7 @@ pub use math::*;
 pub use meta::*;
 pub use pdf::*;
 pub use pdf_canvas::{PdfDocument, PdfFont, PdfPage};
-pub use raster::{parse_hex_color, RasterImage, Rgba};
+pub use raster::{decode_png, decode_webp, parse_hex_color, RasterImage, Rgba};
 pub use style::*;
 pub use svg::*;
 pub use units::*;

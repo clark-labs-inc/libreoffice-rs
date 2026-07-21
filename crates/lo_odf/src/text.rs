@@ -26,6 +26,17 @@ fn inline_xml(spans: &[Inline]) -> String {
                 escape_attr(url),
                 escape_text(label)
             )),
+            Inline::Styled { text, url, .. } => {
+                if let Some(url) = url {
+                    out.push_str(&format!(
+                        "<text:a xlink:href=\"{}\">{}</text:a>",
+                        escape_attr(url),
+                        escape_text(text)
+                    ));
+                } else {
+                    out.push_str(&escape_text(text));
+                }
+            }
             Inline::LineBreak => out.push_str("<text:line-break/>"),
         }
     }

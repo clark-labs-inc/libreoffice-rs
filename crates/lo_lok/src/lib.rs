@@ -582,7 +582,11 @@ fn bold_inlines(spans: &mut Vec<lo_core::Inline>) {
         match span {
             Inline::Text(text) => *span = Inline::Bold(std::mem::take(text)),
             Inline::Italic(text) => *span = Inline::Bold(std::mem::take(text)),
-            Inline::Code(_) | Inline::Bold(_) | Inline::Link { .. } | Inline::LineBreak => {}
+            Inline::Code(_)
+            | Inline::Bold(_)
+            | Inline::Link { .. }
+            | Inline::Styled { .. }
+            | Inline::LineBreak => {}
         }
     }
 }

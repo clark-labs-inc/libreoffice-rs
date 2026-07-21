@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/libreoffice-pure.svg)](https://crates.io/crates/libreoffice-pure)
 [![docs.rs](https://docs.rs/libreoffice-pure/badge.svg)](https://docs.rs/libreoffice-pure)
 
-**Pure-Rust, std-only** library and CLI for reading, writing, converting, and rendering office documents — DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG, ODF, ODB, PDF, HTML, SVG, Markdown, CSV, and plain text — with no C/C++ shims, no FFI, no LibreOffice install, and zero non-std dependencies.
+**Pure-Rust** library and CLI for reading, writing, converting, and rendering office documents — DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG, ODF, ODB, PDF, HTML, SVG, Markdown, CSV, and plain text — with no C/C++ shims, no FFI, no LibreOffice install, and no native system dependencies.
 
 ## Quick start
 
@@ -18,6 +18,9 @@ libreoffice-pure --headless --convert-to csv spreadsheet.xlsx
 
 # Markdown to DOCX
 libreoffice-pure convert --to docx notes.md notes.docx
+
+# Markdown to polished, tagged PDF (HTML/CSS, Mermaid, math, SVG/WebP/PNG/JPEG)
+libreoffice-pure markdown-to-pdf report.md report.pdf
 
 # Extract text as Markdown
 libreoffice-pure docx-to-md report.docx report.md
@@ -36,6 +39,10 @@ use libreoffice_pure::{convert_bytes, sniff_format_from_bytes};
 let docx = std::fs::read("report.docx").unwrap();
 let pdf = convert_bytes(&docx, "docx", "pdf").unwrap();
 std::fs::write("report.pdf", pdf).unwrap();
+
+let markdown = std::fs::read_to_string("report.md").unwrap();
+let tagged_pdf = libreoffice_pure::markdown_to_pdf_bytes(&markdown).unwrap();
+std::fs::write("report-from-markdown.pdf", tagged_pdf).unwrap();
 ```
 
 Per-domain crates (`lo_writer`, `lo_calc`, `lo_impress`, `lo_draw`, `lo_math`, `lo_base`) give fine-grained control over document creation and export.

@@ -31,6 +31,41 @@ fn render_inlines(spans: &[Inline]) -> String {
                     html_escape(label)
                 ));
             }
+            Inline::Styled { text, style, url } => {
+                let mut css = Vec::new();
+                if !style.color.is_empty() {
+                    css.push(format!("color:{}", html_escape(&style.color)));
+                }
+                if !style.background.is_empty() {
+                    css.push(format!(
+                        "background-color:{}",
+                        html_escape(&style.background)
+                    ));
+                }
+                if style.bold {
+                    css.push("font-weight:bold".to_string());
+                }
+                if style.italic {
+                    css.push("font-style:italic".to_string());
+                }
+                if style.underline {
+                    css.push("text-decoration:underline".to_string());
+                }
+                let content = url.as_ref().map_or_else(
+                    || html_escape(text),
+                    |url| {
+                        format!(
+                            r#"<a href="{}">{}</a>"#,
+                            html_escape(url),
+                            html_escape(text)
+                        )
+                    },
+                );
+                out.push_str(&format!(
+                    r#"<span style="{}">{content}</span>"#,
+                    css.join(";")
+                ));
+            }
             Inline::LineBreak => out.push_str("<br/>"),
         }
     }

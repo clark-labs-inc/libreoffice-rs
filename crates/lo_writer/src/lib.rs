@@ -11,18 +11,21 @@ pub mod svg;
 
 pub use docx::to_docx;
 pub use html::to_html;
-pub use import::{from_doc_bytes, from_docx_bytes, from_html, from_odt_bytes, from_pdf_bytes, load_bytes};
+pub use import::{
+    from_doc_bytes, from_docx_bytes, from_html, from_odt_bytes, from_pdf_bytes, load_bytes,
+};
 pub use legacy_doc::extract_text_from_doc;
 pub use markdown::to_markdown;
 pub use pdf::{to_pdf, to_pdf_with_size};
 pub use raster::{render_jpeg_pages, render_pages, render_png_pages};
 pub use svg::render_svg;
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use lo_core::{
-    Block, Heading, Inline, ListBlock, ListItem, LoError, Paragraph, Result, Table, TableCell,
-    TableRow, TextDocument,
+    Block, Heading, ImageBlock, Inline, Length, ListBlock, ListItem, LoError, Paragraph, Result,
+    Size, Table, TableCell, TableRow, TextDocument, TextStyle,
 };
 
 pub struct WriterEditor {
@@ -110,6 +113,50 @@ pub fn to_plain_text(document: &TextDocument) -> String {
 }
 
 pub fn from_markdown(title: impl Into<String>, markdown: &str) -> TextDocument {
+    parse_markdown(title.into(), markdown, |_| Ok(None))
+        .expect("Markdown parsing without external assets is infallible")
+}
+
+/// Parse Markdown and resolve image references relative to `base_dir`.
+/// Missing, remote, or unsupported image sources are reported instead of
+/// silently replacing the visual with a placeholder.
+pub fn from_markdown_with_base(
+    title: impl Into<String>,
+    markdown: &str,
+    base_dir: impl AsRef<Path>,
+) -> Result<TextDocument> {
+    let base = base_dir.as_ref().to_path_buf();
+    from_markdown_with_resolver(title, markdown, move |source| {
+        if has_uri_scheme(source) {
+            return Err(LoError::Unsupported(format!(
+                "remote Markdown image requires a custom resolver: {source}"
+            )));
+        }
+        let path = normalize_asset_path(&base, source);
+        fs::read(&path)
+            .map(Some)
+            .map_err(|error| LoError::Io(format!("{}: {error}", path.display())))
+    })
+}
+
+/// Parse Markdown with caller-provided image loading. This is the reusable
+/// boundary for network-backed artifacts: callers may fetch remote URLs while
+/// the pure-Rust CLI uses [`from_markdown_with_base`] for local assets.
+pub fn from_markdown_with_resolver<F>(
+    title: impl Into<String>,
+    markdown: &str,
+    resolver: F,
+) -> Result<TextDocument>
+where
+    F: FnMut(&str) -> Result<Option<Vec<u8>>>,
+{
+    parse_markdown(title.into(), markdown, resolver)
+}
+
+fn parse_markdown<F>(title: String, markdown: &str, mut resolver: F) -> Result<TextDocument>
+where
+    F: FnMut(&str) -> Result<Option<Vec<u8>>>,
+{
     let mut document = TextDocument::new(title);
     let lines: Vec<&str> = markdown.lines().collect();
     let mut index = 0usize;
@@ -135,19 +182,137 @@ pub fn from_markdown(title: impl Into<String>, markdown: &str) -> TextDocument {
             continue;
         }
 
+        if let Some(fence) = parse_fence(trimmed) {
+            let language = trimmed[fence.len()..].trim().to_ascii_lowercase();
+            let mut code = Vec::new();
+            index += 1;
+            while index < lines.len() && !lines[index].trim_start().starts_with(fence) {
+                code.push(lines[index]);
+                index += 1;
+            }
+            if index < lines.len() {
+                index += 1;
+            }
+            if language == "mermaid" {
+                document.body.push(Block::Image(rich_markdown_block(
+                    "diagram.mermaid",
+                    "application/vnd.mermaid+text",
+                    "Mermaid flowchart",
+                    code.join("\n"),
+                    170.0,
+                    90.0,
+                )));
+                continue;
+            }
+            if matches!(language.as_str(), "math" | "latex" | "tex") {
+                let source = code.join("\n");
+                document.body.push(Block::Image(rich_markdown_block(
+                    "formula.tex",
+                    "application/x-latex",
+                    &format!("Formula: {}", accessible_formula_text(&source)),
+                    source,
+                    170.0,
+                    36.0,
+                )));
+                continue;
+            }
+            let mut paragraph = Paragraph {
+                spans: vec![Inline::Code(code.join("\n"))],
+                ..Paragraph::default()
+            };
+            paragraph.text_style.font_family = "monospace".to_string();
+            paragraph.text_style.background = "#f1f0ec".to_string();
+            paragraph.style.margin_top_mm = 2;
+            paragraph.style.margin_bottom_mm = 3;
+            document.body.push(Block::Paragraph(paragraph));
+            continue;
+        }
+
+        if trimmed.starts_with("$$") {
+            let mut formula = Vec::new();
+            if trimmed.len() > 4 && trimmed.ends_with("$$") {
+                formula.push(trimmed[2..trimmed.len() - 2].trim());
+                index += 1;
+            } else {
+                let first = trimmed.trim_start_matches("$$").trim();
+                if !first.is_empty() {
+                    formula.push(first);
+                }
+                index += 1;
+                while index < lines.len() && !lines[index].trim().ends_with("$$") {
+                    formula.push(lines[index].trim());
+                    index += 1;
+                }
+                if index < lines.len() {
+                    let last = lines[index].trim().trim_end_matches("$$").trim();
+                    if !last.is_empty() {
+                        formula.push(last);
+                    }
+                    index += 1;
+                }
+            }
+            let source = formula.join(" ");
+            document.body.push(Block::Image(rich_markdown_block(
+                "formula.tex",
+                "application/x-latex",
+                &format!("Formula: {}", accessible_formula_text(&source)),
+                source,
+                170.0,
+                36.0,
+            )));
+            continue;
+        }
+
+        if let Some((alt, source)) = parse_image(trimmed) {
+            let data = resolver(source)?.unwrap_or_default();
+            document
+                .body
+                .push(Block::Image(markdown_image(source, alt, data)?));
+            index += 1;
+            continue;
+        }
+
+        if trimmed.starts_with('>') {
+            let mut quote_lines = Vec::new();
+            while index < lines.len() && lines[index].trim_start().starts_with('>') {
+                quote_lines.push(
+                    lines[index]
+                        .trim_start()
+                        .trim_start_matches('>')
+                        .trim_start(),
+                );
+                index += 1;
+            }
+            let mut paragraph = Paragraph {
+                spans: parse_inlines(&quote_lines.join("\n")),
+                ..Paragraph::default()
+            };
+            paragraph.style.margin_left_mm = 6;
+            paragraph.style.margin_right_mm = 3;
+            paragraph.text_style.italic = true;
+            paragraph.text_style.color = "#544f49".to_string();
+            document.body.push(Block::Paragraph(paragraph));
+            continue;
+        }
+
         if trimmed == "---" || trimmed == "***" {
             document.body.push(Block::HorizontalRule);
             index += 1;
             continue;
         }
 
-        if is_list_item(trimmed) {
+        if let Some((ordered, _)) = parse_list_item(trimmed) {
             let mut list = ListBlock {
-                ordered: false,
+                ordered,
                 items: Vec::new(),
             };
-            while index < lines.len() && is_list_item(lines[index].trim()) {
-                let item_text = lines[index].trim()[2..].trim();
+            while index < lines.len() {
+                let Some((item_ordered, item_text)) = parse_list_item(lines[index].trim()) else {
+                    break;
+                };
+                if item_ordered != ordered {
+                    break;
+                }
                 list.items.push(ListItem {
                     blocks: vec![Block::Paragraph(Paragraph {
                         spans: parse_inlines(item_text),
@@ -168,13 +333,18 @@ pub fn from_markdown(title: impl Into<String>, markdown: &str) -> TextDocument {
                     index += 1;
                     continue;
                 }
+                let header = rows.is_empty();
                 let cells = split_table_row(current)
                     .into_iter()
-                    .map(|cell| TableCell {
-                        paragraphs: vec![Paragraph {
+                    .map(|cell| {
+                        let mut paragraph = Paragraph {
                             spans: parse_inlines(cell.trim()),
                             ..Paragraph::default()
-                        }],
+                        };
+                        paragraph.text_style.bold = header;
+                        TableCell {
+                            paragraphs: vec![paragraph],
+                        }
                     })
                     .collect();
                 rows.push(TableRow { cells });
@@ -193,8 +363,11 @@ pub fn from_markdown(title: impl Into<String>, markdown: &str) -> TextDocument {
             let current = lines[index].trim();
             if current.is_empty()
                 || parse_heading(current).is_some()
-                || is_list_item(current)
+                || parse_list_item(current).is_some()
                 || is_table_row(current)
+                || parse_image(current).is_some()
+                || parse_fence(current).is_some()
+                || current.starts_with('>')
                 || current == "---"
                 || current == "***"
             {
@@ -204,12 +377,12 @@ pub fn from_markdown(title: impl Into<String>, markdown: &str) -> TextDocument {
             index += 1;
         }
         document.body.push(Block::Paragraph(Paragraph {
-            spans: parse_inlines(&paragraph_lines.join(" ")),
+            spans: parse_inlines(&paragraph_lines.join("\n")),
             ..Paragraph::default()
         }));
     }
 
-    document
+    Ok(document)
 }
 
 fn parse_heading(line: &str) -> Option<(u8, &str)> {
@@ -224,8 +397,206 @@ fn parse_heading(line: &str) -> Option<(u8, &str)> {
     Some((hashes as u8, rest))
 }
 
-fn is_list_item(line: &str) -> bool {
-    line.starts_with("- ") || line.starts_with("* ")
+fn parse_list_item(line: &str) -> Option<(bool, &str)> {
+    if let Some(text) = line
+        .strip_prefix("- ")
+        .or_else(|| line.strip_prefix("* "))
+        .or_else(|| line.strip_prefix("+ "))
+    {
+        return Some((false, text.trim()));
+    }
+    let digits = line.chars().take_while(|ch| ch.is_ascii_digit()).count();
+    if digits > 0 && line.get(digits..digits + 2) == Some(". ") {
+        return Some((true, line[digits + 2..].trim()));
+    }
+    None
+}
+
+fn parse_fence(line: &str) -> Option<&str> {
+    if line.starts_with("```") {
+        Some("```")
+    } else if line.starts_with("~~~") {
+        Some("~~~")
+    } else {
+        None
+    }
+}
+
+fn parse_image(line: &str) -> Option<(&str, &str)> {
+    let rest = line.strip_prefix("![")?;
+    let label_end = rest.find("](")?;
+    if !rest.ends_with(')') {
+        return None;
+    }
+    let source = rest[label_end + 2..rest.len() - 1].trim();
+    let source = source.split_whitespace().next()?.trim_matches(['<', '>']);
+    Some((&rest[..label_end], source))
+}
+
+fn has_uri_scheme(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+    {
+        return false;
+    }
+    source.find(':').is_some_and(|index| {
+        index > 0
+            && source[..index]
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'))
+    })
+}
+
+fn normalize_asset_path(base: &Path, source: &str) -> PathBuf {
+    let decoded = percent_decode(source.split(['?', '#']).next().unwrap_or(source));
+    let path = Path::new(&decoded);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    }
+}
+
+fn percent_decode(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (hex(bytes[index + 1]), hex(bytes[index + 2])) {
+                out.push(high * 16 + low);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+fn hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn markdown_image(source: &str, alt: &str, data: Vec<u8>) -> Result<ImageBlock> {
+    let (mime_type, pixel_size) = if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let decoded = lo_core::decode_png(&data)?;
+        ("image/png", Some((decoded.width, decoded.height)))
+    } else if data.starts_with(&[0xff, 0xd8]) {
+        ("image/jpeg", jpeg_dimensions(&data))
+    } else if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP") {
+        let decoded = lo_core::decode_webp(&data)?;
+        ("image/webp", Some((decoded.width, decoded.height)))
+    } else if String::from_utf8_lossy(&data)
+        .trim_start()
+        .starts_with("<svg")
+    {
+        ("image/svg+xml", svg_dimensions(&data))
+    } else if data.is_empty() {
+        ("application/octet-stream", None)
+    } else {
+        return Err(LoError::Unsupported(format!(
+            "Markdown image format is not supported: {source}"
+        )));
+    };
+    let size = pixel_size
+        .map(markdown_image_size)
+        .unwrap_or_else(|| Size::new(Length::mm(120.0), Length::mm(72.0)));
+    Ok(ImageBlock {
+        name: source.to_string(),
+        mime_type: mime_type.to_string(),
+        data,
+        alt: alt.to_string(),
+        size,
+    })
+}
+
+fn svg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let root = lo_core::parse_xml_document(text).ok()?;
+    let parse_dimension = |name: &str| {
+        root.attr(name).and_then(|value| {
+            value
+                .trim_end_matches(|ch: char| ch.is_ascii_alphabetic() || ch == '%')
+                .parse::<f32>()
+                .ok()
+        })
+    };
+    if let (Some(width), Some(height)) = (parse_dimension("width"), parse_dimension("height")) {
+        return Some((
+            width.max(1.0).round() as u32,
+            height.max(1.0).round() as u32,
+        ));
+    }
+    let view_box = root.attr("viewBox").or_else(|| root.attr("viewbox"))?;
+    let values = view_box
+        .split(|ch: char| ch.is_whitespace() || ch == ',')
+        .filter_map(|value| value.parse::<f32>().ok())
+        .collect::<Vec<_>>();
+    (values.len() == 4).then(|| {
+        (
+            values[2].max(1.0).round() as u32,
+            values[3].max(1.0).round() as u32,
+        )
+    })
+}
+
+fn markdown_image_size((width, height): (u32, u32)) -> Size {
+    let natural_width = width as f32 * 25.4 / 96.0;
+    let display_width = natural_width.clamp(25.0, 170.0);
+    let display_height = (display_width * height as f32 / width.max(1) as f32).min(220.0);
+    Size::new(Length::mm(display_width), Length::mm(display_height))
+}
+
+fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut index = 2usize;
+    while index + 4 <= bytes.len() {
+        if bytes[index] != 0xff {
+            index += 1;
+            continue;
+        }
+        let marker = bytes[index + 1];
+        index += 2;
+        if matches!(marker, 0xd8 | 0xd9) || (0xd0..=0xd7).contains(&marker) {
+            continue;
+        }
+        let len = u16::from_be_bytes(bytes.get(index..index + 2)?.try_into().ok()?) as usize;
+        if len < 2 || index + len > bytes.len() {
+            return None;
+        }
+        if matches!(
+            marker,
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
+        ) {
+            let height =
+                u16::from_be_bytes(bytes.get(index + 3..index + 5)?.try_into().ok()?) as u32;
+            let width =
+                u16::from_be_bytes(bytes.get(index + 5..index + 7)?.try_into().ok()?) as u32;
+            return Some((width, height));
+        }
+        index += len;
+    }
+    None
 }
 
 fn is_table_row(line: &str) -> bool {
@@ -248,6 +619,38 @@ fn parse_inlines(input: &str) -> Vec<Inline> {
     let mut text_buffer = String::new();
 
     while index < chars.len() {
+        if chars[index] == '\n' {
+            flush_text(&mut spans, &mut text_buffer);
+            spans.push(Inline::LineBreak);
+            index += 1;
+            continue;
+        }
+        if chars[index] == '<' {
+            let remaining = chars[index..].iter().collect::<String>();
+            if let Some((consumed, inline)) = parse_inline_html(&remaining) {
+                flush_text(&mut spans, &mut text_buffer);
+                spans.push(inline);
+                index += consumed.chars().count();
+                continue;
+            }
+        }
+        if chars[index] == '$' && chars.get(index + 1) != Some(&'$') {
+            if let Some(end) = find_single_marker(&chars, index + 1, '$') {
+                flush_text(&mut spans, &mut text_buffer);
+                let source = chars[index + 1..end].iter().collect::<String>();
+                let mut style = TextStyle::default();
+                style.font_family = "Times".to_string();
+                style.italic = true;
+                style.color = "#3d315f".to_string();
+                spans.push(Inline::Styled {
+                    text: flatten_inline_math(&source),
+                    style,
+                    url: None,
+                });
+                index = end + 1;
+                continue;
+            }
+        }
         if index + 1 < chars.len() && chars[index] == '*' && chars[index + 1] == '*' {
             if let Some(end) = find_double_marker(&chars, index + 2, '*') {
                 flush_text(&mut spans, &mut text_buffer);
@@ -301,6 +704,204 @@ fn parse_inlines(input: &str) -> Vec<Inline> {
     spans
 }
 
+fn parse_inline_html(input: &str) -> Option<(&str, Inline)> {
+    let tag_end = input.find('>')?;
+    let opening = &input[1..tag_end];
+    let opening_trimmed = opening.trim();
+    if matches!(opening_trimmed.to_ascii_lowercase().as_str(), "br" | "br/") {
+        return Some((&input[..=tag_end], Inline::LineBreak));
+    }
+    if opening_trimmed.starts_with('/') {
+        return None;
+    }
+    let name_end = opening_trimmed
+        .find(char::is_whitespace)
+        .unwrap_or(opening_trimmed.len());
+    let name = opening_trimmed[..name_end].to_ascii_lowercase();
+    if !matches!(
+        name.as_str(),
+        "span" | "strong" | "b" | "em" | "i" | "u" | "mark" | "code" | "a" | "div"
+    ) {
+        return None;
+    }
+    let closing = format!("</{name}>");
+    let lower = input.to_ascii_lowercase();
+    let close_start = lower[tag_end + 1..].find(&closing)? + tag_end + 1;
+    let consumed_end = close_start + closing.len();
+    let content = strip_html_tags(&input[tag_end + 1..close_start]);
+    let mut style = TextStyle::default();
+    match name.as_str() {
+        "strong" | "b" => style.bold = true,
+        "em" | "i" => style.italic = true,
+        "u" => style.underline = true,
+        "mark" => style.background = "#fff1a8".to_string(),
+        "code" => {
+            style.font_family = "monospace".to_string();
+            style.background = "#f1f0ec".to_string();
+        }
+        _ => {}
+    }
+    if let Some(value) = html_attribute(opening_trimmed, "style") {
+        apply_inline_css(&mut style, value);
+    }
+    let url = if name == "a" {
+        html_attribute(opening_trimmed, "href").map(str::to_string)
+    } else {
+        None
+    };
+    if url.is_some() {
+        style.underline = true;
+        if style.color.is_empty() {
+            style.color = "#1e56b3".to_string();
+        }
+    }
+    Some((
+        &input[..consumed_end],
+        Inline::Styled {
+            text: lo_core::decode_entities(&content),
+            style,
+            url,
+        },
+    ))
+}
+
+fn html_attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let lower = tag.to_ascii_lowercase();
+    let needle = format!("{name}=");
+    let start = lower.find(&needle)? + needle.len();
+    let quote = tag.as_bytes().get(start).copied()?;
+    if matches!(quote, b'\'' | b'\"') {
+        let end = tag[start + 1..].find(quote as char)? + start + 1;
+        Some(&tag[start + 1..end])
+    } else {
+        let end = tag[start..]
+            .find(char::is_whitespace)
+            .map(|offset| start + offset)
+            .unwrap_or(tag.len());
+        Some(&tag[start..end])
+    }
+}
+
+fn apply_inline_css(style: &mut TextStyle, css: &str) {
+    for declaration in css.split(';') {
+        let Some((name, value)) = declaration.split_once(':') else {
+            continue;
+        };
+        let name = name.trim().to_ascii_lowercase();
+        let value = value.trim();
+        match name.as_str() {
+            "color" => style.color = normalize_css_color(value),
+            "background" | "background-color" => style.background = normalize_css_color(value),
+            "font-weight" if value.eq_ignore_ascii_case("bold") || value == "700" => {
+                style.bold = true
+            }
+            "font-style" if value.eq_ignore_ascii_case("italic") => style.italic = true,
+            "text-decoration" if value.to_ascii_lowercase().contains("underline") => {
+                style.underline = true
+            }
+            "font-size" => {
+                let numeric = value
+                    .trim_end_matches("pt")
+                    .trim_end_matches("px")
+                    .parse::<f32>()
+                    .ok();
+                if let Some(size) = numeric {
+                    style.font_size_pt = size.clamp(6.0, 72.0).round() as u16;
+                }
+            }
+            "font-family" => style.font_family = value.trim_matches(['\'', '\"']).to_string(),
+            _ => {}
+        }
+    }
+}
+
+fn normalize_css_color(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with('#') {
+        return trimmed.to_string();
+    }
+    if let Some(inner) = trimmed
+        .strip_prefix("rgb(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        let channels = inner
+            .split(',')
+            .filter_map(|part| part.trim().parse::<u8>().ok())
+            .collect::<Vec<_>>();
+        if channels.len() == 3 {
+            return format!("#{:02x}{:02x}{:02x}", channels[0], channels[1], channels[2]);
+        }
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
+        "red" => "#d32f2f",
+        "green" => "#2e7d32",
+        "blue" => "#1565c0",
+        "purple" => "#6d4cc7",
+        "orange" => "#ef8c32",
+        "black" => "#000000",
+        "white" => "#ffffff",
+        "gray" | "grey" => "#777777",
+        _ => trimmed,
+    }
+    .to_string()
+}
+
+fn strip_html_tags(input: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for ch in input.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn flatten_inline_math(source: &str) -> String {
+    source
+        .replace("\\times", "x")
+        .replace("\\cdot", "·")
+        .replace("\\pi", "pi")
+        .replace("\\alpha", "alpha")
+        .replace("\\beta", "beta")
+        .replace("^2", "²")
+        .replace("^3", "³")
+        .replace(['{', '}'], "")
+}
+
+fn accessible_formula_text(input: &str) -> String {
+    input
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("\\frac{", "(")
+        .replace("}{", ") / (")
+        .replace('}', ")")
+        .replace('{', "")
+        .replace("^2", " squared")
+        .replace("^3", " cubed")
+}
+
+fn rich_markdown_block(
+    name: &str,
+    mime_type: &str,
+    alt: &str,
+    source: String,
+    width_mm: f32,
+    height_mm: f32,
+) -> ImageBlock {
+    ImageBlock {
+        name: name.to_string(),
+        mime_type: mime_type.to_string(),
+        data: source.into_bytes(),
+        alt: alt.to_string(),
+        size: Size::new(Length::mm(width_mm), Length::mm(height_mm)),
+    }
+}
+
 fn flush_text(spans: &mut Vec<Inline>, text_buffer: &mut String) {
     if !text_buffer.is_empty() {
         spans.push(Inline::Text(std::mem::take(text_buffer)));
@@ -319,7 +920,7 @@ fn find_double_marker(chars: &[char], start: usize, marker: char) -> Option<usiz
 #[cfg(test)]
 mod tests {
     use super::{from_markdown, to_plain_text};
-    use lo_core::Block;
+    use lo_core::{Block, Inline};
 
     #[test]
     fn markdown_headings_and_lists_parse() {
@@ -327,6 +928,40 @@ mod tests {
         assert!(matches!(doc.body[0], Block::Heading(_)));
         assert!(matches!(doc.body[1], Block::Paragraph(_)));
         assert!(matches!(doc.body[2], Block::List(_)));
+    }
+
+    #[test]
+    fn windows_drive_image_paths_are_local_assets() {
+        assert!(!super::has_uri_scheme(r"C:\reports\chart.png"));
+        assert!(super::has_uri_scheme("https://example.com/chart.png"));
+    }
+
+    #[test]
+    fn rich_markdown_parses_html_css_math_and_mermaid() {
+        let doc = from_markdown(
+            "Rich",
+            "<span style=\"color:#6d5bd0;background-color:#fff1a8;font-weight:bold\">styled</span> and $x^2$\n\n```mermaid\nflowchart LR\nA[Markdown] --> B{PDF}\n```\n\n$$E = \\frac{mc^2}{1 + alpha}$$",
+        );
+        let Block::Paragraph(paragraph) = &doc.body[0] else {
+            panic!("expected paragraph");
+        };
+        assert!(paragraph.spans.iter().any(|span| matches!(
+            span,
+            Inline::Styled { text, style, .. }
+                if text == "styled" && style.color == "#6d5bd0" && style.bold
+        )));
+        assert!(paragraph
+            .spans
+            .iter()
+            .any(|span| matches!(span, Inline::Styled { text, .. } if text == "x²")));
+        assert!(doc.body.iter().any(|block| matches!(
+            block,
+            Block::Image(image) if image.mime_type == "application/vnd.mermaid+text"
+        )));
+        assert!(doc.body.iter().any(|block| matches!(
+            block,
+            Block::Image(image) if image.mime_type == "application/x-latex"
+        )));
     }
 
     #[test]

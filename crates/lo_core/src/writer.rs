@@ -9,7 +9,15 @@ pub enum Inline {
     Bold(String),
     Italic(String),
     Code(String),
-    Link { label: String, url: String },
+    Link {
+        label: String,
+        url: String,
+    },
+    Styled {
+        text: String,
+        style: TextStyle,
+        url: Option<String>,
+    },
     LineBreak,
 }
 
@@ -35,7 +43,8 @@ impl Paragraph {
                 Inline::Text(text)
                 | Inline::Bold(text)
                 | Inline::Italic(text)
-                | Inline::Code(text) => out.push_str(text),
+                | Inline::Code(text)
+                | Inline::Styled { text, .. } => out.push_str(text),
                 Inline::Link { label, .. } => out.push_str(label),
                 Inline::LineBreak => out.push('\n'),
             }

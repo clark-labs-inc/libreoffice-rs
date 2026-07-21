@@ -265,6 +265,18 @@ fn paragraph_runs(paragraph: &Paragraph, size_px: i32, color: Rgba, force_bold: 
             Inline::Italic(text) => runs.push(Run { text: text.clone(), size_px, bold: force_bold, color }),
             Inline::Code(text) => runs.push(Run { text: text.clone(), size_px: (size_px - 1).max(8), bold: true, color: Rgba::rgba(50, 50, 50, 255) }),
             Inline::Link { label, .. } => runs.push(Run { text: label.clone(), size_px, bold: force_bold, color: Rgba::rgba(0, 80, 180, 255) }),
+            Inline::Styled { text, style, .. } => runs.push(Run {
+                text: text.clone(),
+                size_px: if style.font_size_pt == 0 {
+                    size_px
+                } else {
+                    (style.font_size_pt as i32 * 4 / 3).max(8)
+                },
+                bold: force_bold || style.bold,
+                color: if style.color.is_empty() { color } else {
+                    parse_hex_color(&style.color, color)
+                },
+            }),
             Inline::LineBreak => runs.push(Run { text: "\n".to_string(), size_px, bold: force_bold, color }),
         }
     }
@@ -376,7 +388,8 @@ fn wrap_plain(canvas: &RasterImage, text: &str, size_px: i32, max_width: i32) ->
 
 fn paragraph_plain(paragraph: &Paragraph) -> String {
     paragraph.spans.iter().map(|span| match span {
-        Inline::Text(text) | Inline::Bold(text) | Inline::Italic(text) | Inline::Code(text) => text.clone(),
+        Inline::Text(text) | Inline::Bold(text) | Inline::Italic(text) | Inline::Code(text)
+        | Inline::Styled { text, .. } => text.clone(),
         Inline::Link { label, .. } => label.clone(),
         Inline::LineBreak => " ".to_string(),
     }).collect::<Vec<_>>().join("")

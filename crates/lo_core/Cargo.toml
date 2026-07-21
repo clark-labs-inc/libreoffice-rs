@@ -11,3 +11,6 @@ readme = "README.md"
 [lib]
 name = "lo_core"
 path = "src/lib.rs"
+
+[dependencies]
+image = { version = "0.25.10", default-features = false, features = ["webp"] }

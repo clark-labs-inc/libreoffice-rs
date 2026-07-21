@@ -43,6 +43,28 @@ fn render_run(span: &Inline) -> String {
             escape_text(label),
             escape_text(url)
         ),
+        Inline::Styled { text, style, url } => {
+            let mut properties = String::new();
+            if style.bold {
+                properties.push_str("<w:b/>");
+            }
+            if style.italic {
+                properties.push_str("<w:i/>");
+            }
+            if style.underline || url.is_some() {
+                properties.push_str("<w:u w:val=\"single\"/>");
+            }
+            if !style.color.is_empty() {
+                properties.push_str(&format!(
+                    "<w:color w:val=\"{}\"/>",
+                    escape_attr(style.color.trim_start_matches('#'))
+                ));
+            }
+            format!(
+                "<w:r><w:rPr>{properties}</w:rPr><w:t xml:space=\"preserve\">{}</w:t></w:r>",
+                escape_text(text)
+            )
+        }
         Inline::LineBreak => "<w:r><w:br/></w:r>".to_string(),
     }
 }

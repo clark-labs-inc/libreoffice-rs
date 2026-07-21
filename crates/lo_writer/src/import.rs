@@ -355,6 +355,7 @@ fn renumber_footnote_markers(doc: &mut TextDocument) {
             | Inline::Italic(t)
             | Inline::Code(t) => *t = replace_in_text(t, foot, endn),
             Inline::Link { label, .. } => *label = replace_in_text(label, foot, endn),
+            Inline::Styled { text, .. } => *text = replace_in_text(text, foot, endn),
             Inline::LineBreak => {}
         }
     }
@@ -570,6 +571,7 @@ fn inline_text(inline: &Inline) -> &str {
     match inline {
         Inline::Text(text) | Inline::Bold(text) | Inline::Italic(text) | Inline::Code(text) => text,
         Inline::Link { label, .. } => label,
+        Inline::Styled { text, .. } => text,
         Inline::LineBreak => "\n",
     }
 }

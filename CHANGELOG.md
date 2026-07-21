@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 - Rich Markdown PDF and tagged accessibility
+
+- Added the asset-aware `markdown_to_pdf_bytes` API and `markdown-to-pdf` CLI command for polished Markdown artifact export.
+- Added inline HTML/CSS styling, inline and display math, Mermaid flowcharts, local SVG/WebP/PNG/JPEG assets, and clickable hyperlinks.
+- Added native vector rendering for SVG, Mermaid, and display formulas so diagrams and equations remain sharp at any zoom level.
+- Added tagged-PDF structure trees, semantic headings/lists/tables, figure alt text, document language metadata, and artifact tagging for decorative content.
+- Added end-to-end structural, accessibility, image, link, parser, pagination, and visual regression coverage.
+- Changed `lo_core::writer::Inline` by adding the `Styled` variant; this intentional public API expansion requires a minor-version bump before 1.0.
+
 ## 0.4.10 - Writer vertical rhythm correction
 
 - Treated the vertical layout cursor as a block boundary rather than a text baseline, preventing headings from intruding into preceding table borders.

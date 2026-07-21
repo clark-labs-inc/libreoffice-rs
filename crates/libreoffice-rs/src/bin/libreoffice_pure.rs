@@ -9,8 +9,8 @@ use std::process::ExitCode;
 use libreoffice_pure::{
     accept_all_tracked_changes_docx_bytes, convert_bytes, convert_path_bytes, doc_to_docx_bytes,
     docx_to_jpeg_pages, docx_to_md_bytes, docx_to_pdf_bytes, docx_to_png_pages,
-    pdf_to_html_bytes, pdf_to_md_bytes, pdf_to_txt_bytes, pptx_to_jpeg_pages,
-    pptx_to_md_bytes, pptx_to_pdf_bytes, pptx_to_png_pages, xlsx_recalc_bytes,
+    markdown_to_pdf_bytes, pdf_to_html_bytes, pdf_to_md_bytes, pdf_to_txt_bytes,
+    pptx_to_jpeg_pages, pptx_to_md_bytes, pptx_to_pdf_bytes, pptx_to_png_pages, xlsx_recalc_bytes,
     xlsx_recalc_check_json, xlsx_to_md_bytes,
 };
 
@@ -35,6 +35,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         "--convert-to" => soffice_convert(&normalized[1..]),
         "convert" => convert_command(&normalized[2..]),
         "docx-to-pdf" => convert_legacy(&normalized[1..], docx_to_pdf_bytes),
+        "markdown-to-pdf" | "md-to-pdf" => markdown_to_pdf_command(&normalized[2..]),
         "doc-to-docx" => convert_legacy(&normalized[1..], doc_to_docx_bytes),
         "pptx-to-pdf" => convert_legacy(&normalized[1..], pptx_to_pdf_bytes),
         "xlsx-recalc" => convert_legacy(&normalized[1..], xlsx_recalc_bytes),
@@ -61,6 +62,15 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             Err(format!("unknown command: {other}").into())
         }
     }
+}
+
+fn markdown_to_pdf_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let [input, output] = args else {
+        return Err("expected: markdown-to-pdf <input.md> <output.pdf>".into());
+    };
+    let bytes = fs::read(input)?;
+    fs::write(output, markdown_to_pdf_bytes(input, &bytes)?)?;
+    Ok(())
 }
 
 fn normalize_global_flags(args: &[String]) -> Vec<String> {
@@ -126,7 +136,10 @@ where
         match args[index].as_str() {
             "--dpi" => {
                 index += 1;
-                dpi = args.get(index).ok_or("missing value after --dpi")?.parse()?;
+                dpi = args
+                    .get(index)
+                    .ok_or("missing value after --dpi")?
+                    .parse()?;
             }
             other => positionals.push(other.to_string()),
         }
@@ -152,11 +165,17 @@ where
         match args[index].as_str() {
             "--dpi" => {
                 index += 1;
-                dpi = args.get(index).ok_or("missing value after --dpi")?.parse()?;
+                dpi = args
+                    .get(index)
+                    .ok_or("missing value after --dpi")?
+                    .parse()?;
             }
             "--quality" => {
                 index += 1;
-                quality = args.get(index).ok_or("missing value after --quality")?.parse()?;
+                quality = args
+                    .get(index)
+                    .ok_or("missing value after --quality")?
+                    .parse()?;
             }
             other => positionals.push(other.to_string()),
         }
@@ -210,7 +229,9 @@ fn convert_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             "--outdir" => {
                 index += 1;
-                outdir = Some(PathBuf::from(args.get(index).ok_or("missing value after --outdir")?));
+                outdir = Some(PathBuf::from(
+                    args.get(index).ok_or("missing value after --outdir")?,
+                ));
             }
             "-h" | "--help" => {
                 print_usage();
@@ -225,7 +246,9 @@ fn convert_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         return Err("convert requires at least one input path".into());
     }
     if outdir.is_some() && positionals.len() == 2 {
-        return Err("use either --outdir with input paths or an explicit output path, not both".into());
+        return Err(
+            "use either --outdir with input paths or an explicit output path, not both".into(),
+        );
     }
     if let Some(dir) = outdir {
         fs::create_dir_all(&dir)?;
@@ -257,7 +280,9 @@ fn soffice_convert(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         match args[index].as_str() {
             "--outdir" => {
                 index += 1;
-                outdir = Some(PathBuf::from(args.get(index).ok_or("missing value after --outdir")?));
+                outdir = Some(PathBuf::from(
+                    args.get(index).ok_or("missing value after --outdir")?,
+                ));
             }
             other => inputs.push(other.to_string()),
         }
@@ -332,6 +357,7 @@ fn canonical_target_extension(to_hint: &str) -> String {
 fn print_usage() {
     eprintln!(
         "usage:
+  libreoffice-pure markdown-to-pdf <input.md> <output.pdf>
   libreoffice-pure docx-to-pdf <input.docx> <output.pdf>
   libreoffice-pure doc-to-docx <input.doc> <output.docx>
   libreoffice-pure pptx-to-pdf <input.pptx> <output.pdf>
@@ -353,6 +379,7 @@ fn print_usage() {
   libreoffice-pure --headless --convert-to <format> <input>... [--outdir <dir>]
 
 examples:
+  libreoffice-pure markdown-to-pdf report.md report.pdf
   libreoffice-pure convert --to pdf report.docx
   libreoffice-pure convert --to md deck.pptx
   libreoffice-pure convert --to txt paper.pdf

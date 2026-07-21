@@ -1,5 +1,7 @@
 use std::cmp::{max, min};
 
+use crate::{LoError, Result};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rgba {
     pub r: u8,
@@ -47,9 +49,15 @@ pub fn parse_hex_color(input: &str, fallback: Rgba) -> Rgba {
         }
         3 => {
             let mut chars = hex.chars();
-            let r = chars.next().and_then(|ch| u8::from_str_radix(&format!("{ch}{ch}"), 16).ok());
-            let g = chars.next().and_then(|ch| u8::from_str_radix(&format!("{ch}{ch}"), 16).ok());
-            let b = chars.next().and_then(|ch| u8::from_str_radix(&format!("{ch}{ch}"), 16).ok());
+            let r = chars
+                .next()
+                .and_then(|ch| u8::from_str_radix(&format!("{ch}{ch}"), 16).ok());
+            let g = chars
+                .next()
+                .and_then(|ch| u8::from_str_radix(&format!("{ch}{ch}"), 16).ok());
+            let b = chars
+                .next()
+                .and_then(|ch| u8::from_str_radix(&format!("{ch}{ch}"), 16).ok());
             match (r, g, b) {
                 (Some(r), Some(g), Some(b)) => Rgba::rgba(r, g, b, 255),
                 _ => fallback,
@@ -66,6 +74,26 @@ pub struct RasterImage {
     pub pixels: Vec<u8>,
 }
 
+/// Decode a WebP image using the pure-Rust `image-webp` codec exposed by
+/// the `image` crate. Animated WebP files resolve to their first frame,
+/// matching the static-image behavior used by PDF readers.
+pub fn decode_webp(bytes: &[u8]) -> Result<RasterImage> {
+    let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::WebP)
+        .map_err(|error| LoError::Parse(format!("invalid WebP image: {error}")))?
+        .to_rgba8();
+    let (width, height) = decoded.dimensions();
+    if width == 0 || height == 0 {
+        return Err(LoError::InvalidInput(
+            "WebP dimensions must be non-zero".to_string(),
+        ));
+    }
+    Ok(RasterImage {
+        width,
+        height,
+        pixels: decoded.into_raw(),
+    })
+}
+
 impl RasterImage {
     pub fn new(width: u32, height: u32, background: Rgba) -> Self {
         let mut pixels = vec![0u8; width as usize * height as usize * 4];
@@ -75,7 +103,24 @@ impl RasterImage {
             chunk[2] = background.b;
             chunk[3] = background.a;
         }
-        Self { width, height, pixels }
+        Self {
+            width,
+            height,
+            pixels,
+        }
+    }
+
+    pub fn encode_webp(&self) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        image::codecs::webp::WebPEncoder::new_lossless(&mut bytes)
+            .encode(
+                &self.pixels,
+                self.width,
+                self.height,
+                image::ExtendedColorType::Rgba8,
+            )
+            .map_err(|error| LoError::Parse(format!("could not encode WebP image: {error}")))?;
+        Ok(bytes)
     }
 
     fn offset(&self, x: u32, y: u32) -> Option<usize> {
@@ -101,9 +146,12 @@ impl RasterImage {
         }
         let alpha = color.a as u16;
         let inv = 255u16.saturating_sub(alpha);
-        self.pixels[offset] = (((color.r as u16 * alpha) + (self.pixels[offset] as u16 * inv)) / 255) as u8;
-        self.pixels[offset + 1] = (((color.g as u16 * alpha) + (self.pixels[offset + 1] as u16 * inv)) / 255) as u8;
-        self.pixels[offset + 2] = (((color.b as u16 * alpha) + (self.pixels[offset + 2] as u16 * inv)) / 255) as u8;
+        self.pixels[offset] =
+            (((color.r as u16 * alpha) + (self.pixels[offset] as u16 * inv)) / 255) as u8;
+        self.pixels[offset + 1] =
+            (((color.g as u16 * alpha) + (self.pixels[offset + 1] as u16 * inv)) / 255) as u8;
+        self.pixels[offset + 2] =
+            (((color.b as u16 * alpha) + (self.pixels[offset + 2] as u16 * inv)) / 255) as u8;
         self.pixels[offset + 3] = 255;
     }
 
@@ -122,7 +170,15 @@ impl RasterImage {
         }
     }
 
-    pub fn stroke_rect(&mut self, x: i32, y: i32, width: i32, height: i32, thickness: i32, color: Rgba) {
+    pub fn stroke_rect(
+        &mut self,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        thickness: i32,
+        color: Rgba,
+    ) {
         if width <= 0 || height <= 0 || thickness <= 0 {
             return;
         }
@@ -132,7 +188,15 @@ impl RasterImage {
         self.fill_rect(x + width - thickness, y, thickness, height, color);
     }
 
-    pub fn draw_line(&mut self, mut x0: i32, mut y0: i32, x1: i32, y1: i32, thickness: i32, color: Rgba) {
+    pub fn draw_line(
+        &mut self,
+        mut x0: i32,
+        mut y0: i32,
+        x1: i32,
+        y1: i32,
+        thickness: i32,
+        color: Rgba,
+    ) {
         let dx = (x1 - x0).abs();
         let sx = if x0 < x1 { 1 } else { -1 };
         let dy = -(y1 - y0).abs();
@@ -140,7 +204,13 @@ impl RasterImage {
         let mut err = dx + dy;
         let radius = max(1, thickness) / 2;
         loop {
-            self.fill_rect(x0 - radius, y0 - radius, max(1, thickness), max(1, thickness), color);
+            self.fill_rect(
+                x0 - radius,
+                y0 - radius,
+                max(1, thickness),
+                max(1, thickness),
+                color,
+            );
             if x0 == x1 && y0 == y1 {
                 break;
             }
@@ -171,7 +241,15 @@ impl RasterImage {
         }
     }
 
-    pub fn stroke_ellipse(&mut self, cx: i32, cy: i32, rx: i32, ry: i32, thickness: i32, color: Rgba) {
+    pub fn stroke_ellipse(
+        &mut self,
+        cx: i32,
+        cy: i32,
+        rx: i32,
+        ry: i32,
+        thickness: i32,
+        color: Rgba,
+    ) {
         if rx <= 0 || ry <= 0 || thickness <= 0 {
             return;
         }
@@ -223,7 +301,13 @@ impl RasterImage {
         for (row, bits) in glyph.iter().enumerate() {
             for col in 0..5 {
                 if bits & (1 << (4 - col)) != 0 {
-                    self.fill_rect(x + col as i32 * scale, y + row as i32 * scale, scale, scale, color);
+                    self.fill_rect(
+                        x + col as i32 * scale,
+                        y + row as i32 * scale,
+                        scale,
+                        scale,
+                        color,
+                    );
                 }
             }
         }
@@ -273,6 +357,156 @@ impl RasterImage {
     }
 }
 
+/// Decode a non-interlaced, 8-bit PNG into RGBA pixels. Supports grayscale,
+/// RGB, indexed color, grayscale+alpha, and RGBA, including every standard
+/// PNG scanline filter.
+pub fn decode_png(bytes: &[u8]) -> Result<RasterImage> {
+    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if bytes.get(..8) != Some(SIGNATURE) {
+        return Err(LoError::Parse("invalid PNG signature".to_string()));
+    }
+    let mut offset = 8usize;
+    let mut width = 0u32;
+    let mut height = 0u32;
+    let mut bit_depth = 0u8;
+    let mut color_type = 0u8;
+    let mut interlace = 0u8;
+    let mut palette = Vec::new();
+    let mut transparency = Vec::new();
+    let mut compressed = Vec::new();
+    while offset + 12 <= bytes.len() {
+        let len = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        let tag = &bytes[offset + 4..offset + 8];
+        let data_start = offset + 8;
+        let data_end = data_start
+            .checked_add(len)
+            .ok_or_else(|| LoError::Parse("PNG chunk length overflow".to_string()))?;
+        if data_end + 4 > bytes.len() {
+            return Err(LoError::Parse("truncated PNG chunk".to_string()));
+        }
+        let data = &bytes[data_start..data_end];
+        match tag {
+            b"IHDR" if data.len() == 13 => {
+                width = u32::from_be_bytes(data[0..4].try_into().unwrap());
+                height = u32::from_be_bytes(data[4..8].try_into().unwrap());
+                bit_depth = data[8];
+                color_type = data[9];
+                interlace = data[12];
+            }
+            b"PLTE" => palette.extend_from_slice(data),
+            b"tRNS" => transparency.extend_from_slice(data),
+            b"IDAT" => compressed.extend_from_slice(data),
+            b"IEND" => break,
+            _ => {}
+        }
+        offset = data_end + 4;
+    }
+    if width == 0 || height == 0 || bit_depth != 8 || interlace != 0 {
+        return Err(LoError::Unsupported(
+            "PNG images must be non-interlaced and 8-bit".to_string(),
+        ));
+    }
+    let channels = match color_type {
+        0 | 3 => 1usize,
+        2 => 3,
+        4 => 2,
+        6 => 4,
+        _ => {
+            return Err(LoError::Unsupported(format!(
+                "PNG color type {color_type} is not supported"
+            )))
+        }
+    };
+    let stride = (width as usize)
+        .checked_mul(channels)
+        .ok_or_else(|| LoError::InvalidInput("PNG dimensions are too large".to_string()))?;
+    let expected = (stride + 1)
+        .checked_mul(height as usize)
+        .ok_or_else(|| LoError::InvalidInput("PNG dimensions are too large".to_string()))?;
+    if expected > 512 * 1024 * 1024 {
+        return Err(LoError::InvalidInput("PNG image is too large".to_string()));
+    }
+    let raw = crate::pdf::decode_flate_stream(&compressed)?;
+    if raw.len() < expected {
+        return Err(LoError::Parse("truncated PNG image data".to_string()));
+    }
+    let mut scanlines = vec![0u8; stride * height as usize];
+    for row in 0..height as usize {
+        let source = &raw[row * (stride + 1) + 1..row * (stride + 1) + 1 + stride];
+        let filter = raw[row * (stride + 1)];
+        let (before, current_and_after) = scanlines.split_at_mut(row * stride);
+        let current = &mut current_and_after[..stride];
+        let previous = if row == 0 {
+            None
+        } else {
+            Some(&before[(row - 1) * stride..row * stride])
+        };
+        for index in 0..stride {
+            let left = if index >= channels {
+                current[index - channels]
+            } else {
+                0
+            };
+            let up = previous.map(|line| line[index]).unwrap_or(0);
+            let upper_left = if index >= channels {
+                previous.map(|line| line[index - channels]).unwrap_or(0)
+            } else {
+                0
+            };
+            current[index] = source[index].wrapping_add(match filter {
+                0 => 0,
+                1 => left,
+                2 => up,
+                3 => ((left as u16 + up as u16) / 2) as u8,
+                4 => paeth(left, up, upper_left),
+                other => return Err(LoError::Parse(format!("invalid PNG filter {other}"))),
+            });
+        }
+    }
+    let mut pixels = Vec::with_capacity(width as usize * height as usize * 4);
+    for pixel in scanlines.chunks_exact(channels) {
+        match color_type {
+            0 => pixels.extend_from_slice(&[pixel[0], pixel[0], pixel[0], 255]),
+            2 => pixels.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]),
+            3 => {
+                let index = pixel[0] as usize;
+                let start = index * 3;
+                let rgb = palette.get(start..start + 3).ok_or_else(|| {
+                    LoError::Parse("PNG palette index is out of range".to_string())
+                })?;
+                pixels.extend_from_slice(&[
+                    rgb[0],
+                    rgb[1],
+                    rgb[2],
+                    transparency.get(index).copied().unwrap_or(255),
+                ]);
+            }
+            4 => pixels.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]),
+            6 => pixels.extend_from_slice(pixel),
+            _ => unreachable!(),
+        }
+    }
+    Ok(RasterImage {
+        width,
+        height,
+        pixels,
+    })
+}
+
+fn paeth(left: u8, up: u8, upper_left: u8) -> u8 {
+    let p = left as i32 + up as i32 - upper_left as i32;
+    let pa = (p - left as i32).abs();
+    let pb = (p - up as i32).abs();
+    let pc = (p - upper_left as i32).abs();
+    if pa <= pb && pa <= pc {
+        left
+    } else if pb <= pc {
+        up
+    } else {
+        upper_left
+    }
+}
+
 fn write_chunk(out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(&(data.len() as u32).to_be_bytes());
     out.extend_from_slice(tag);
@@ -307,7 +541,11 @@ fn adler32(bytes: &[u8]) -> u32 {
 }
 
 fn glyph_rows(ch: char) -> [u8; 7] {
-    let c = if ch.is_ascii_lowercase() { ch.to_ascii_uppercase() } else { ch };
+    let c = if ch.is_ascii_lowercase() {
+        ch.to_ascii_uppercase()
+    } else {
+        ch
+    };
     match c {
         'A' => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
         'B' => [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
@@ -372,69 +610,54 @@ fn glyph_rows(ch: char) -> [u8; 7] {
 }
 
 const ZIGZAG: [usize; 64] = [
-    0, 1, 5, 6, 14, 15, 27, 28,
-    2, 4, 7, 13, 16, 26, 29, 42,
-    3, 8, 12, 17, 25, 30, 41, 43,
-    9, 11, 18, 24, 31, 40, 44, 53,
-    10, 19, 23, 32, 39, 45, 52, 54,
-    20, 22, 33, 38, 46, 51, 55, 60,
-    21, 34, 37, 47, 50, 56, 59, 61,
-    35, 36, 48, 49, 57, 58, 62, 63,
+    0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9, 11,
+    18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60, 21, 34,
+    37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
 ];
 
 const STD_LUMA_Q: [u8; 64] = [
-    16, 11, 10, 16, 24, 40, 51, 61,
-    12, 12, 14, 19, 26, 58, 60, 55,
-    14, 13, 16, 24, 40, 57, 69, 56,
-    14, 17, 22, 29, 51, 87, 80, 62,
-    18, 22, 37, 56, 68, 109, 103, 77,
-    24, 35, 55, 64, 81, 104, 113, 92,
-    49, 64, 78, 87, 103, 121, 120, 101,
-    72, 92, 95, 98, 112, 100, 103, 99,
+    16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55, 14, 13, 16, 24, 40, 57, 69, 56,
+    14, 17, 22, 29, 51, 87, 80, 62, 18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55, 64, 81, 104, 113,
+    92, 49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99,
 ];
 
 const STD_CHROMA_Q: [u8; 64] = [
-    17, 18, 24, 47, 99, 99, 99, 99,
-    18, 21, 26, 66, 99, 99, 99, 99,
-    24, 26, 56, 99, 99, 99, 99, 99,
-    47, 66, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
-    99, 99, 99, 99, 99, 99, 99, 99,
+    17, 18, 24, 47, 99, 99, 99, 99, 18, 21, 26, 66, 99, 99, 99, 99, 24, 26, 56, 99, 99, 99, 99, 99,
+    47, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
 ];
 
 const BITS_DC_LUMA: [u8; 17] = [0, 0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
 const VAL_DC_LUMA: [u8; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const BITS_AC_LUMA: [u8; 17] = [0, 0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 0x7d];
 const VAL_AC_LUMA: [u8; 162] = [
-    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61,
-    0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08, 0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52,
-    0xD1, 0xF0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25,
-    0x26, 0x27, 0x28, 0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45,
-    0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64,
-    0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83,
-    0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
-    0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
-    0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3,
-    0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8,
-    0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA,
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07,
+    0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08, 0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0,
+    0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28,
+    0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+    0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+    0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+    0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5,
+    0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2,
+    0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+    0xF9, 0xFA,
 ];
 const BITS_DC_CHROMA: [u8; 17] = [0, 0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0];
 const VAL_DC_CHROMA: [u8; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const BITS_AC_CHROMA: [u8; 17] = [0, 0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 0x77];
 const VAL_AC_CHROMA: [u8; 162] = [
-    0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61,
-    0x71, 0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33,
-    0x52, 0xF0, 0x15, 0x62, 0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34, 0xE1, 0x25, 0xF1, 0x17, 0x18,
-    0x19, 0x1A, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44,
-    0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63,
-    0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A,
-    0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
-    0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4,
-    0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA,
-    0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
-    0xE8, 0xE9, 0xEA, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA,
+    0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71,
+    0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33, 0x52, 0xF0,
+    0x15, 0x62, 0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34, 0xE1, 0x25, 0xF1, 0x17, 0x18, 0x19, 0x1A, 0x26,
+    0x27, 0x28, 0x29, 0x2A, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+    0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5,
+    0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3,
+    0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA,
+    0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8,
+    0xF9, 0xFA,
 ];
 
 #[derive(Clone)]
@@ -471,11 +694,17 @@ struct BitWriter {
 
 impl BitWriter {
     fn new() -> Self {
-        Self { bytes: Vec::new(), cur: 0, bits: 0 }
+        Self {
+            bytes: Vec::new(),
+            cur: 0,
+            bits: 0,
+        }
     }
 
     fn write(&mut self, code: u16, size: u8) {
-        if size == 0 { return; }
+        if size == 0 {
+            return;
+        }
         self.cur |= (code as u32) << (24 - self.bits as u32 - size as u32);
         self.bits += size;
         while self.bits >= 8 {
@@ -510,7 +739,11 @@ struct JpegWriter {
 
 impl JpegWriter {
     fn new(width: usize, height: usize, quality: u8) -> Self {
-        Self { width, height, quality: quality.max(1).min(100) }
+        Self {
+            width,
+            height,
+            quality: quality.max(1).min(100),
+        }
     }
 
     fn encode(&mut self, rgba: &[u8]) -> Vec<u8> {
@@ -557,11 +790,19 @@ impl JpegWriter {
 }
 
 #[derive(Clone, Copy)]
-enum Component { Y, Cb, Cr }
+enum Component {
+    Y,
+    Cb,
+    Cr,
+}
 
 fn scaled_qtable(base: &[u8; 64], quality: u8) -> [u8; 64] {
     let q = quality.max(1).min(100);
-    let scale = if q < 50 { 5000 / q as i32 } else { 200 - q as i32 * 2 };
+    let scale = if q < 50 {
+        5000 / q as i32
+    } else {
+        200 - q as i32 * 2
+    };
     let mut out = [0u8; 64];
     for (index, value) in base.iter().enumerate() {
         let scaled = ((*value as i32 * scale + 50) / 100).clamp(1, 255);
@@ -577,7 +818,13 @@ fn write_marker_segment(out: &mut Vec<u8>, marker: u8, payload: &[u8]) {
 }
 
 fn write_app0(out: &mut Vec<u8>) {
-    write_marker_segment(out, 0xE0, &[0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
+    write_marker_segment(
+        out,
+        0xE0,
+        &[
+            0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        ],
+    );
 }
 
 fn write_dqt(out: &mut Vec<u8>, id: u8, table: &[u8; 64]) {
@@ -592,12 +839,20 @@ fn write_dqt(out: &mut Vec<u8>, id: u8, table: &[u8; 64]) {
 fn write_sof0(out: &mut Vec<u8>, width: u16, height: u16) {
     let payload = [
         8,
-        (height >> 8) as u8, height as u8,
-        (width >> 8) as u8, width as u8,
+        (height >> 8) as u8,
+        height as u8,
+        (width >> 8) as u8,
+        width as u8,
         3,
-        1, 0x11, 0,
-        2, 0x11, 1,
-        3, 0x11, 1,
+        1,
+        0x11,
+        0,
+        2,
+        0x11,
+        1,
+        3,
+        0x11,
+        1,
     ];
     write_marker_segment(out, 0xC0, &payload);
 }
@@ -615,7 +870,14 @@ fn write_sos(out: &mut Vec<u8>) {
     write_marker_segment(out, 0xDA, &payload);
 }
 
-fn sample_block(rgba: &[u8], width: usize, height: usize, bx: usize, by: usize, component: Component) -> [f32; 64] {
+fn sample_block(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+    bx: usize,
+    by: usize,
+    component: Component,
+) -> [f32; 64] {
     let mut out = [0f32; 64];
     for y in 0..8 {
         for x in 0..8 {
@@ -657,7 +919,14 @@ fn fdct(input: &[f32; 64]) -> [f32; 64] {
     out
 }
 
-fn write_block(bits: &mut BitWriter, block: &[f32; 64], qtable: &[u8; 64], prev_dc: i32, dc_table: &HuffmanTable, ac_table: &HuffmanTable) -> i32 {
+fn write_block(
+    bits: &mut BitWriter,
+    block: &[f32; 64],
+    qtable: &[u8; 64],
+    prev_dc: i32,
+    dc_table: &HuffmanTable,
+    ac_table: &HuffmanTable,
+) -> i32 {
     let dct = fdct(block);
     let mut quant = [0i32; 64];
     for i in 0..64 {
@@ -707,7 +976,9 @@ fn magnitude_category(value: i32) -> i32 {
 }
 
 fn magnitude_bits(value: i32, size: i32) -> u32 {
-    if size <= 0 { return 0; }
+    if size <= 0 {
+        return 0;
+    }
     if value >= 0 {
         value as u32
     } else {

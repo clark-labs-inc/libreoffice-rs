@@ -11,6 +11,7 @@
 //! - JSON recalc reports compatible with Clark's existing `recalc.py`
 //! - direct DOCX/PPTX page rasterization to PNG/JPEG
 //! - Markdown extraction for DOCX/PPTX/XLSX
+//! - high-fidelity local Markdown -> PDF with embedded PNG/JPEG assets
 //! - PDF -> TXT/MD/HTML via the native PDF reader
 
 mod xlsx_eval;
@@ -19,8 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use lo_core::{
-    parse_xml_document, serialize_xml_document, CellAddr, LoError, Result, Workbook,
-    XmlItem, XmlNode,
+    parse_xml_document, serialize_xml_document, CellAddr, LoError, Result, Workbook, XmlItem,
+    XmlNode,
 };
 use lo_zip::{normalize_zip_path, rels_path_for, resolve_part_target, ZipArchive};
 use xlsx_eval::{translate_shared_formula, EvalValue, WorkbookEvaluator};
@@ -29,6 +30,17 @@ use xlsx_eval::{translate_shared_formula, EvalValue, WorkbookEvaluator};
 /// layout/rendering path.
 pub fn docx_to_pdf_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
     let doc = lo_writer::from_docx_bytes("document", bytes)?;
+    lo_writer::save_as(&doc, "pdf")
+}
+
+/// Convert Markdown bytes to PDF while resolving relative PNG/JPEG images
+/// from the Markdown file's directory.
+pub fn markdown_to_pdf_bytes(path: impl AsRef<Path>, bytes: &[u8]) -> Result<Vec<u8>> {
+    let path = path.as_ref();
+    let markdown = std::str::from_utf8(bytes)
+        .map_err(|error| LoError::Parse(format!("Markdown is not UTF-8: {error}")))?;
+    let base = path.parent().unwrap_or_else(|| Path::new("."));
+    let doc = lo_writer::from_markdown_with_base("", markdown, base)?;
     lo_writer::save_as(&doc, "pdf")
 }
 
@@ -129,10 +141,15 @@ pub fn sniff_format_from_bytes(bytes: &[u8]) -> Option<String> {
         }
     }
     let header_len = bytes.len().min(1024);
-    if bytes[..header_len].windows(5).any(|window| window == b"%PDF-") {
+    if bytes[..header_len]
+        .windows(5)
+        .any(|window| window == b"%PDF-")
+    {
         return Some("pdf".to_string());
     }
-    let text = std::str::from_utf8(bytes).ok()?.trim_start_matches('\u{feff}');
+    let text = std::str::from_utf8(bytes)
+        .ok()?
+        .trim_start_matches('\u{feff}');
     if text.starts_with("<svg") || text.contains("<svg") {
         return Some("svg".to_string());
     }
@@ -152,7 +169,9 @@ pub fn sniff_format_from_bytes(bytes: &[u8]) -> Option<String> {
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn family_for_source(source: &str) -> Option<Family> {
@@ -247,7 +266,11 @@ pub fn convert_path_bytes(path: &str, input: &[u8], to: &str) -> Result<Vec<u8>>
     let from = sniff_format_from_path(path).ok_or_else(|| {
         LoError::InvalidInput(format!("could not infer input format from path: {path}"))
     })?;
-    convert_bytes(input, &from, to)
+    if from == "md" && canonical_format_hint(to) == "pdf" {
+        markdown_to_pdf_bytes(path, input)
+    } else {
+        convert_bytes(input, &from, to)
+    }
 }
 
 /// Infer the source format from the byte payload itself and dispatch to
@@ -369,7 +392,11 @@ impl RecalcCheckReport {
                 json.push(',');
             }
             first_kind = false;
-            json.push_str(&format!("\"{}\":{{\"count\":{},\"locations\":[", esc(kind), bucket.count));
+            json.push_str(&format!(
+                "\"{}\":{{\"count\":{},\"locations\":[",
+                esc(kind),
+                bucket.count
+            ));
             for (index, location) in bucket.locations.iter().enumerate() {
                 if index > 0 {
                     json.push(',');
@@ -410,28 +437,40 @@ pub fn xlsx_recalc_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
             let xml = zip.read_string(&path)?;
             let mut root = parse_xml_document(&xml)?;
             remove_content_type_override(&mut root, "/xl/calcChain.xml");
-            entries.push(lo_zip::ZipEntry::new(path, serialize_xml_document(&root).into_bytes()));
+            entries.push(lo_zip::ZipEntry::new(
+                path,
+                serialize_xml_document(&root).into_bytes(),
+            ));
             continue;
         }
         if path == "xl/_rels/workbook.xml.rels" {
             let xml = zip.read_string(&path)?;
             let mut root = parse_xml_document(&xml)?;
             remove_calc_chain_relationships(&mut root);
-            entries.push(lo_zip::ZipEntry::new(path, serialize_xml_document(&root).into_bytes()));
+            entries.push(lo_zip::ZipEntry::new(
+                path,
+                serialize_xml_document(&root).into_bytes(),
+            ));
             continue;
         }
         if path == "xl/workbook.xml" {
             let xml = zip.read_string(&path)?;
             let mut root = parse_xml_document(&xml)?;
             mark_workbook_recalculated(&mut root);
-            entries.push(lo_zip::ZipEntry::new(path, serialize_xml_document(&root).into_bytes()));
+            entries.push(lo_zip::ZipEntry::new(
+                path,
+                serialize_xml_document(&root).into_bytes(),
+            ));
             continue;
         }
         if let Some(sheet_index) = sheet_targets.iter().position(|(target, _)| target == &path) {
             let xml = zip.read_string(&path)?;
             let mut root = parse_xml_document(&xml)?;
             patch_xlsx_sheet_formula_cache(&mut root, &workbook, sheet_index, &evaluator)?;
-            entries.push(lo_zip::ZipEntry::new(path, serialize_xml_document(&root).into_bytes()));
+            entries.push(lo_zip::ZipEntry::new(
+                path,
+                serialize_xml_document(&root).into_bytes(),
+            ));
             continue;
         }
         entries.push(lo_zip::ZipEntry::new(path, zip.read(entry_name)?));
@@ -507,7 +546,9 @@ fn parse_relationships(zip: &ZipArchive, part: &str) -> Result<BTreeMap<String, 
 
 fn remove_content_type_override(root: &mut XmlNode, part_name: &str) {
     root.items.retain(|item| match item {
-        XmlItem::Node(node) if node.local_name() == "Override" => node.attr("PartName") != Some(part_name),
+        XmlItem::Node(node) if node.local_name() == "Override" => {
+            node.attr("PartName") != Some(part_name)
+        }
         _ => true,
     });
     sync_node_children(root);
@@ -531,8 +572,10 @@ fn mark_workbook_recalculated(root: &mut XmlNode) {
     for item in &mut root.items {
         if let XmlItem::Node(node) = item {
             if node.local_name() == "calcPr" {
-                node.attributes.insert("calcCompleted".to_string(), "1".to_string());
-                node.attributes.insert("fullCalcOnLoad".to_string(), "0".to_string());
+                node.attributes
+                    .insert("calcCompleted".to_string(), "1".to_string());
+                node.attributes
+                    .insert("fullCalcOnLoad".to_string(), "0".to_string());
                 node.attributes.remove("calcMode");
                 found = true;
             }
@@ -573,7 +616,14 @@ fn patch_xlsx_sheet_formula_cache(
             .unwrap_or(1);
         for cell in &mut row.children {
             if cell.local_name() == "c" {
-                patch_formula_cell(cell, row_number, workbook, sheet_index, evaluator, &mut shared_formulas)?;
+                patch_formula_cell(
+                    cell,
+                    row_number,
+                    workbook,
+                    sheet_index,
+                    evaluator,
+                    &mut shared_formulas,
+                )?;
             }
         }
         sync_node_items_from_children(row);
@@ -610,7 +660,10 @@ fn walk_formula_cells(
                 .attr("r")
                 .and_then(parse_a1_cell_ref)
                 .unwrap_or((row_number, 1));
-            let addr = CellAddr::new(row_1.saturating_sub(1) as u32, col_1.saturating_sub(1) as u32);
+            let addr = CellAddr::new(
+                row_1.saturating_sub(1) as u32,
+                col_1.saturating_sub(1) as u32,
+            );
             let Some(formula) = resolve_formula_for_cell(cell, addr, &mut shared_formulas) else {
                 continue;
             };
@@ -638,7 +691,10 @@ fn patch_formula_cell(
         .attr("r")
         .and_then(parse_a1_cell_ref)
         .unwrap_or((fallback_row, 1));
-    let addr = CellAddr::new(row_1.saturating_sub(1) as u32, col_1.saturating_sub(1) as u32);
+    let addr = CellAddr::new(
+        row_1.saturating_sub(1) as u32,
+        col_1.saturating_sub(1) as u32,
+    );
     let Some(formula) = resolve_formula_for_cell(cell, addr, shared_formulas) else {
         return Ok(());
     };
@@ -728,7 +784,11 @@ fn make_value_node(value: &EvalValue) -> XmlNode {
         }
         EvalValue::Text(text) => text.clone(),
         EvalValue::Bool(value) => {
-            if *value { "1".to_string() } else { "0".to_string() }
+            if *value {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            }
         }
         EvalValue::Error(text) => text.clone(),
     };
@@ -736,7 +796,11 @@ fn make_value_node(value: &EvalValue) -> XmlNode {
         name: "v".to_string(),
         attributes: BTreeMap::new(),
         children: Vec::new(),
-        items: if text.is_empty() { Vec::new() } else { vec![XmlItem::Text(text.clone())] },
+        items: if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![XmlItem::Text(text.clone())]
+        },
         text,
     }
 }
@@ -898,11 +962,7 @@ fn accept_revision_node(node: &XmlNode) -> Vec<XmlItem> {
     }
     if matches!(
         local,
-        "ins"
-            | "moveTo"
-            | "customXmlInsRangeStart"
-            | "customXmlInsRangeEnd"
-            | "cellIns"
+        "ins" | "moveTo" | "customXmlInsRangeStart" | "customXmlInsRangeEnd" | "cellIns"
     ) {
         return accept_revision_items(&node.items);
     }
@@ -913,7 +973,11 @@ fn accept_revision_node(node: &XmlNode) -> Vec<XmlItem> {
         return Vec::new();
     }
     let items = accept_revision_items(&node.items);
-    vec![XmlItem::Node(rebuild_node(node, items, node.attributes.clone()))]
+    vec![XmlItem::Node(rebuild_node(
+        node,
+        items,
+        node.attributes.clone(),
+    ))]
 }
 
 fn row_deleted(node: &XmlNode) -> bool {
@@ -1078,7 +1142,6 @@ fn _assert_send_sync() {
     let _ = LoError::Parse(String::new());
 }
 
-
 // ---- Markdown extraction --------------------------------------------------
 
 /// Extract Markdown from an existing DOCX file using the native Writer importer.
@@ -1110,7 +1173,11 @@ pub fn docx_to_png_pages(input: &[u8], dpi: u32) -> Result<Vec<Vec<u8>>> {
 /// Rasterize a DOCX document directly to JPEG pages at the requested DPI.
 pub fn docx_to_jpeg_pages(input: &[u8], dpi: u32, quality: u8) -> Result<Vec<Vec<u8>>> {
     let doc = lo_writer::from_docx_bytes("document", input)?;
-    Ok(lo_writer::render_jpeg_pages(&doc, dpi.max(72), quality.max(1)))
+    Ok(lo_writer::render_jpeg_pages(
+        &doc,
+        dpi.max(72),
+        quality.max(1),
+    ))
 }
 
 /// Rasterize a PPTX deck directly to PNG slide images at the requested DPI.
@@ -1122,5 +1189,9 @@ pub fn pptx_to_png_pages(input: &[u8], dpi: u32) -> Result<Vec<Vec<u8>>> {
 /// Rasterize a PPTX deck directly to JPEG slide images at the requested DPI.
 pub fn pptx_to_jpeg_pages(input: &[u8], dpi: u32, quality: u8) -> Result<Vec<Vec<u8>>> {
     let deck = lo_impress::from_pptx_bytes("presentation", input)?;
-    Ok(lo_impress::render_jpeg_pages(&deck, dpi.max(72), quality.max(1)))
+    Ok(lo_impress::render_jpeg_pages(
+        &deck,
+        dpi.max(72),
+        quality.max(1),
+    ))
 }

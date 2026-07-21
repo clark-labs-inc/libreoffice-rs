@@ -75,6 +75,32 @@ fn paragraph_to_markdown(paragraph: &Paragraph) -> String {
             Inline::Italic(text) => out.push_str(&format!("*{}*", escape_text(text))),
             Inline::Code(text) => out.push_str(&format!("`{}`", text.replace('`', "'"))),
             Inline::Link { label, url } => out.push_str(&format!("[{}]({})", escape_text(label), url)),
+            Inline::Styled { text, style, url } => {
+                let mut css = Vec::new();
+                if !style.color.is_empty() {
+                    css.push(format!("color:{}", style.color));
+                }
+                if !style.background.is_empty() {
+                    css.push(format!("background-color:{}", style.background));
+                }
+                if style.bold {
+                    css.push("font-weight:bold".to_string());
+                }
+                if style.italic {
+                    css.push("font-style:italic".to_string());
+                }
+                if style.underline {
+                    css.push("text-decoration:underline".to_string());
+                }
+                let content = url.as_ref().map_or_else(
+                    || escape_text(text),
+                    |url| format!("<a href=\"{url}\">{}</a>", escape_text(text)),
+                );
+                out.push_str(&format!(
+                    "<span style=\"{}\">{content}</span>",
+                    css.join(";")
+                ));
+            }
             Inline::LineBreak => out.push_str("  \n"),
         }
     }

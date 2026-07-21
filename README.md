@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/libreoffice-pure/badge.svg)](https://docs.rs/libreoffice-pure)
 [![license: MIT](https://img.shields.io/crates/l/libreoffice-pure.svg)](LICENSE)
 
-> **Pure-Rust, std-only** library and CLI for reading, writing, converting, and rendering office documents — **DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG, ODF, ODB, PDF, HTML, SVG, Markdown, CSV, and plain text** — with **no C/C++ shims, no FFI, no LibreOffice install, and zero non-std dependencies**.
+> **Pure-Rust** library and CLI for reading, writing, converting, and rendering office documents — **DOCX, XLSX, PPTX, ODT, ODS, ODP, ODG, ODF, ODB, PDF, HTML, SVG, Markdown, CSV, and plain text** — with **no C/C++ shims, no FFI, no LibreOffice install, and no native system dependencies**.
 
 ## Quick start
 
@@ -23,6 +23,9 @@ libreoffice-pure --headless --convert-to pdf slides.pptx
 # Markdown to DOCX
 libreoffice-pure convert --to docx notes.md notes.docx
 
+# Markdown to polished, tagged PDF (HTML/CSS, Mermaid, math, SVG/WebP/PNG/JPEG)
+libreoffice-pure markdown-to-pdf report.md report.pdf
+
 # Extract text from DOCX/PPTX/XLSX as Markdown
 libreoffice-pure docx-to-md report.docx report.md
 libreoffice-pure pptx-to-md slides.pptx slides.md
@@ -38,13 +41,14 @@ The `--headless --convert-to` interface mirrors `soffice` — drop it into exist
 ## Why libreoffice-rs?
 
 - **No LibreOffice install required.** Convert DOCX → PDF, XLSX → CSV, PPTX → Markdown, and more directly from Rust.
-- **Pure Rust, std only.** Compiles with `cargo build` on a stock toolchain. Drop-in for WASM, serverless, sandboxes, and minimal containers.
+- **Markdown-native tagged PDF.** Headings, lists, tables, blockquotes, code, links, inline HTML/CSS, Mermaid, math, and local SVG/WebP/PNG/JPEG assets render through the Writer layout engine with semantic structure and figure alt text.
+- **Pure Rust.** Compiles with `cargo build` on a stock toolchain, using only Rust crates and no native libraries. Suitable for serverless, sandboxes, and minimal containers.
 - **Fast.** 10–187× faster than real LibreOffice across the full N×M conversion matrix (mean ~116× across 63 head-to-head pairs). See [benchmarks](#benchmarks).
 - **Honest.** This is **not** a full replacement for LibreOffice. See [project status](#project-status).
 
 ## Project status
 
-This is **not feature-parity with LibreOffice**. LibreOffice is a massive decades-old suite with deep compatibility, UI toolkits, printing, macros, scripting, and more. This codebase provides a coherent Rust architecture and meaningful real functionality — every crate is pure Rust/std-only, the spreadsheet engine evaluates non-trivial formulas, and the CLI creates actual ODF/OOXML archives — but it does **not** fully replace LibreOffice. See [`STATUS.md`](STATUS.md) for the candid feature matrix.
+This is **not feature-parity with LibreOffice**. LibreOffice is a massive decades-old suite with deep compatibility, UI toolkits, printing, macros, scripting, and more. This codebase provides a coherent pure-Rust architecture and meaningful real functionality — the spreadsheet engine evaluates non-trivial formulas, and the CLI creates actual ODF/OOXML archives — but it does **not** fully replace LibreOffice. See [`STATUS.md`](STATUS.md) for the candid feature matrix.
 
 ## Benchmarks
 
@@ -113,7 +117,7 @@ libreoffice-pure desktop-demo ./demo_profile
 ## Crate architecture
 
 <details>
-<summary>Workspace crates (14 crates, all pure Rust / std-only)</summary>
+<summary>Workspace crates (14 crates, all pure Rust with no native system dependencies)</summary>
 
 | Crate | Description |
 |---|---|
@@ -143,7 +147,7 @@ No. It parses, writes, and converts DOCX/XLSX/PPTX/ODF/PDF files directly in pur
 Yes. Every crate is on [crates.io](https://crates.io/crates/libreoffice-pure). The `libreoffice_pure::convert_bytes` / `convert_path_bytes` API provides format-auto-detecting conversion. Per-domain crates (`lo_writer`, `lo_calc`, etc.) give fine-grained control.
 
 **Does it work with WASM / serverless / containers?**
-Yes. Pure Rust, std-only, no `build.rs` / FFI / system libraries.
+Yes. Pure Rust, no FFI or system libraries.
 
 ## Agent skill
 
