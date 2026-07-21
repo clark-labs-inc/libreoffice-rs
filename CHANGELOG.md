@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2 - Coherent workspace dependency floor
+
+- Raised every internal `lo_*` dependency requirement to 0.5.2 so existing consumer lockfiles cannot retain the 0.5.0 WebP dependency graph.
+
 ## 0.5.1 - Restore the supported Rust version floor
 
 - Pinned the pure-Rust WebP dependency to `image` 0.25.5, retaining the rich Markdown feature set while supporting Rust 1.82 builders.

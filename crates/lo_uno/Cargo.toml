@@ -10,4 +10,4 @@ description = "UNO-like service registry framework"
 readme = "README.md"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.5.0" }
+lo_core = { path = "../lo_core", version = "0.5.2" }

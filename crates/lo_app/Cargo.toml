@@ -10,6 +10,6 @@ description = "Desktop application surface (start center, templates, recent file
 readme = "README.md"
 
 [dependencies]
-lo_core = { path = "../lo_core", version = "0.5.0" }
-lo_lok = { path = "../lo_lok", version = "0.5.0" }
-lo_uno = { path = "../lo_uno", version = "0.5.0" }
+lo_core = { path = "../lo_core", version = "0.5.2" }
+lo_lok = { path = "../lo_lok", version = "0.5.2" }
+lo_uno = { path = "../lo_uno", version = "0.5.2" }
