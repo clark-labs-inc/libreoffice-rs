@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.4 - Bounded raster memory and reliable batch conversion
+
+- Reject raster requests above 300 DPI before parsing a DOCX/PPTX or allocating
+  page buffers, preventing untrusted CLI/API arguments from requesting
+  multi-gigabyte images.
+- Fixed `convert --outdir` so an exact two-input batch is treated as two input
+  documents instead of being rejected as an ambiguous input/output pair.
+
 ## 0.5.2 - Coherent workspace dependency floor
 
 - Raised every internal `lo_*` dependency requirement to 0.5.2 so existing consumer lockfiles cannot retain the 0.5.0 WebP dependency graph.

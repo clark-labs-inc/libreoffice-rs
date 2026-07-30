@@ -15,6 +15,11 @@
 //! - PDF -> TXT/MD/HTML via the native PDF reader
 
 mod xlsx_eval;
+mod raster;
+
+pub use raster::{
+    docx_to_jpeg_pages, docx_to_png_pages, pptx_to_jpeg_pages, pptx_to_png_pages,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -1160,38 +1165,4 @@ pub fn pptx_to_md_bytes(input: &[u8]) -> Result<Vec<u8>> {
 pub fn xlsx_to_md_bytes(input: &[u8]) -> Result<Vec<u8>> {
     let workbook = lo_calc::from_xlsx_bytes("workbook", input)?;
     Ok(lo_calc::to_markdown(&workbook).into_bytes())
-}
-
-// ---- Direct raster output -------------------------------------------------
-
-/// Rasterize a DOCX document directly to PNG pages at the requested DPI.
-pub fn docx_to_png_pages(input: &[u8], dpi: u32) -> Result<Vec<Vec<u8>>> {
-    let doc = lo_writer::from_docx_bytes("document", input)?;
-    Ok(lo_writer::render_png_pages(&doc, dpi.max(72)))
-}
-
-/// Rasterize a DOCX document directly to JPEG pages at the requested DPI.
-pub fn docx_to_jpeg_pages(input: &[u8], dpi: u32, quality: u8) -> Result<Vec<Vec<u8>>> {
-    let doc = lo_writer::from_docx_bytes("document", input)?;
-    Ok(lo_writer::render_jpeg_pages(
-        &doc,
-        dpi.max(72),
-        quality.max(1),
-    ))
-}
-
-/// Rasterize a PPTX deck directly to PNG slide images at the requested DPI.
-pub fn pptx_to_png_pages(input: &[u8], dpi: u32) -> Result<Vec<Vec<u8>>> {
-    let deck = lo_impress::from_pptx_bytes("presentation", input)?;
-    Ok(lo_impress::render_png_pages(&deck, dpi.max(72)))
-}
-
-/// Rasterize a PPTX deck directly to JPEG slide images at the requested DPI.
-pub fn pptx_to_jpeg_pages(input: &[u8], dpi: u32, quality: u8) -> Result<Vec<Vec<u8>>> {
-    let deck = lo_impress::from_pptx_bytes("presentation", input)?;
-    Ok(lo_impress::render_jpeg_pages(
-        &deck,
-        dpi.max(72),
-        quality.max(1),
-    ))
 }

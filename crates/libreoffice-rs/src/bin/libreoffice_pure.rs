@@ -245,11 +245,6 @@ fn convert_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if positionals.is_empty() {
         return Err("convert requires at least one input path".into());
     }
-    if outdir.is_some() && positionals.len() == 2 {
-        return Err(
-            "use either --outdir with input paths or an explicit output path, not both".into(),
-        );
-    }
     if let Some(dir) = outdir {
         fs::create_dir_all(&dir)?;
         for input in &positionals {
@@ -389,4 +384,46 @@ examples:
   libreoffice-pure --convert-to pdf:writer_pdf_Export notes.odt
   libreoffice-pure xlsx-recalc-check model.xlsx"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture_dir(name: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "libreoffice-pure-{name}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn convert_outdir_accepts_exactly_two_inputs() {
+        let dir = fixture_dir("two-inputs");
+        let inputs = dir.join("inputs");
+        let outputs = dir.join("outputs");
+        fs::create_dir_all(&inputs).expect("create inputs");
+        let first = inputs.join("first.txt");
+        let second = inputs.join("second.txt");
+        fs::write(&first, b"first document").expect("write first");
+        fs::write(&second, b"second document").expect("write second");
+
+        let args = vec![
+            "--to".to_string(),
+            "md".to_string(),
+            "--outdir".to_string(),
+            outputs.display().to_string(),
+            first.display().to_string(),
+            second.display().to_string(),
+        ];
+        convert_command(&args).expect("convert two inputs");
+
+        assert!(outputs.join("first.md").is_file());
+        assert!(outputs.join("second.md").is_file());
+        let _ = fs::remove_dir_all(dir);
+    }
 }
