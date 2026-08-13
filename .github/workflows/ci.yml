@@ -1,0 +1,13 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: clark-labs-inc/.github/.github/workflows/rust-library.yml@1c98dea58c3bc4f4b3a6650f758795c530175001
