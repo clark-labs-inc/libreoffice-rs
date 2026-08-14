@@ -14,4 +14,4 @@ lo_core = { path = "../lo_core", version = "0.5.2" }
 lo_zip = { path = "../lo_zip", version = "0.5.2" }
 
 [dev-dependencies]
-lo_odf = { path = "../lo_odf" }
+lo_odf = { path = "../lo_odf", version = "0.5.2" }

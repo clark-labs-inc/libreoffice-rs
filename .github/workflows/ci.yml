@@ -15,3 +15,10 @@ jobs:
       # Legacy source is not yet rustfmt-clean on the pinned 1.97.1 toolchain.
       # New repositories keep the reusable workflow's strict formatting gate.
       format-command: ""
+      # This published library workspace intentionally does not commit a lock
+      # file; application and service templates do.
+      build-command: cargo check --all-targets --all-features
+      clippy-command: ""
+      test-command: cargo nextest run --all-targets --all-features --no-fail-fast
+      doc-test-command: cargo test --doc --all-features
+      doc-command: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features

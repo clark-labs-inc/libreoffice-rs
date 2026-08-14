@@ -1,4 +1,4 @@
-//! Multi-page PDF canvas built on top of [`pdf_from_objects`].
+//! Multi-page PDF canvas built on top of [`crate::pdf::pdf_from_objects`].
 //!
 //! This layer is still intentionally small, but it now exposes the
 //! primitives needed by Clark's visual Writer/Impress verification path:
