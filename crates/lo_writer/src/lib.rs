@@ -634,8 +634,13 @@ fn parse_inlines(input: &str) -> Vec<Inline> {
                 continue;
             }
         }
-        if chars[index] == '$' && chars.get(index + 1) != Some(&'$') {
-            if let Some(end) = find_single_marker(&chars, index + 1, '$') {
+        if chars[index] == '$'
+            && chars
+                .get(index + 1)
+                .is_some_and(|next| !next.is_whitespace() && *next != '$')
+            && !starts_with_currency_amount(&chars, index + 1)
+        {
+            if let Some(end) = find_inline_math_end(&chars, index + 1) {
                 flush_text(&mut spans, &mut text_buffer);
                 let source = chars[index + 1..end].iter().collect::<String>();
                 let mut style = TextStyle::default();
@@ -912,6 +917,38 @@ fn find_single_marker(chars: &[char], start: usize, marker: char) -> Option<usiz
     (start..chars.len()).find(|&index| chars[index] == marker)
 }
 
+fn find_inline_math_end(chars: &[char], start: usize) -> Option<usize> {
+    (start..chars.len()).find(|&index| {
+        chars[index] == '$'
+            && index > start
+            && chars
+                .get(index.wrapping_sub(1))
+                .is_some_and(|previous| !previous.is_whitespace())
+    })
+}
+
+fn starts_with_currency_amount(chars: &[char], start: usize) -> bool {
+    let mut index = start;
+    let mut saw_digit = false;
+    while let Some(character) = chars.get(index) {
+        if character.is_ascii_digit() {
+            saw_digit = true;
+            index += 1;
+            continue;
+        }
+        if matches!(character, '.' | ',') {
+            index += 1;
+            continue;
+        }
+        return saw_digit
+            && matches!(
+                character,
+                'k' | 'K' | 'm' | 'M' | 'b' | 'B' | 't' | 'T'
+            );
+    }
+    false
+}
+
 fn find_double_marker(chars: &[char], start: usize, marker: char) -> Option<usize> {
     (start..chars.len().saturating_sub(1))
         .find(|&index| chars[index] == marker && chars[index + 1] == marker)
@@ -962,6 +999,43 @@ mod tests {
             block,
             Block::Image(image) if image.mime_type == "application/x-latex"
         )));
+    }
+
+    #[test]
+    fn dollar_denominated_amounts_are_not_parsed_as_inline_math() {
+        let doc = from_markdown(
+            "Funding",
+            concat!(
+                "| Company | Amount |\n",
+                "| --- | --- |\n",
+                "| Lovable | $400M Series C @ $13.3B valuation |\n",
+                "| Blacksmith | $45M Series B @ ~$550M valuation |",
+            ),
+        );
+        let Block::Table(table) = &doc.body[0] else {
+            panic!("expected table");
+        };
+        let amount = table.rows[1].cells[1].paragraphs[0].to_plain_text();
+        assert_eq!(amount, "$400M Series C @ $13.3B valuation");
+        assert!(table.rows[1].cells[1].paragraphs[0]
+            .spans
+            .iter()
+            .all(|span| matches!(span, Inline::Text(_))));
+        let second_amount = table.rows[2].cells[1].paragraphs[0].to_plain_text();
+        assert_eq!(second_amount, "$45M Series B @ ~$550M valuation");
+        assert!(table.rows[2].cells[1].paragraphs[0]
+            .spans
+            .iter()
+            .all(|span| matches!(span, Inline::Text(_))));
+
+        let math = from_markdown("Math", "The result is $x^2 + y^2$.");
+        let Block::Paragraph(paragraph) = &math.body[0] else {
+            panic!("expected paragraph");
+        };
+        assert!(paragraph
+            .spans
+            .iter()
+            .any(|span| matches!(span, Inline::Styled { text, .. } if text == "x² + y²")));
     }
 
     #[test]

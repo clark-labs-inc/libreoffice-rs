@@ -46,6 +46,16 @@ struct LayoutContext {
     fonts: FontResolver,
 }
 
+const BODY_FONT_SIZE: f32 = 12.0;
+const TABLE_FONT_SIZE: f32 = 9.0;
+const TABLE_CELL_HORIZONTAL_PADDING: f32 = 12.0;
+const TABLE_CELL_VERTICAL_PADDING: f32 = 12.0;
+const TABLE_WORD_FIT_SLOP: f32 = 3.0;
+const HEADING_TRAILING_GAP: f32 = 4.0;
+const LIST_ITEM_GAP: f32 = 3.0;
+const LIST_TRAILING_GAP: f32 = 7.0;
+const TABLE_TRAILING_GAP: f32 = 14.0;
+
 pub fn render_document_pdf(doc: &TextDocument) -> Vec<u8> {
     let ctx = LayoutContext::from_page_style(&doc.page_style);
     let mut pdf = PdfDocument::new();
@@ -80,20 +90,18 @@ pub fn render_document_pdf(doc: &TextDocument) -> Vec<u8> {
     }
 
     for (block_index, block) in doc.body.iter().enumerate() {
-        if matches!(block, Block::Heading(_)) {
-            if let Some(Block::Image(image)) = doc.body.get(block_index + 1) {
-                if matches!(
-                    image.mime_type.as_str(),
-                    "application/vnd.mermaid+text" | "application/x-latex" | "image/svg+xml"
-                ) {
-                    let image_height = image
-                        .size
-                        .height
-                        .as_pt()
-                        .min(ctx.page_h - ctx.margin_t - ctx.margin_b - 28.0);
-                    y = ensure_room(&ctx, &mut pdf, &mut page_index, y, image_height + 58.0);
-                }
-            }
+        if let Block::Heading(heading) = block {
+            let heading_height = heading_height(&ctx, heading);
+            let following_height = doc
+                .body
+                .get(block_index + 1)
+                .map(|following| following_keep_height(&ctx, following))
+                .unwrap_or(0.0);
+            let content_height = ctx.page_h - ctx.margin_t - ctx.margin_b;
+            let maximum_following_keep =
+                (content_height - heading_height).max(BODY_FONT_SIZE * 2.5);
+            let keep_height = heading_height + following_height.min(maximum_following_keep);
+            y = ensure_room(&ctx, &mut pdf, &mut page_index, y, keep_height);
         }
         match block {
             Block::Heading(heading) => {
@@ -106,7 +114,7 @@ pub fn render_document_pdf(doc: &TextDocument) -> Vec<u8> {
                     &mut page_index,
                     y,
                     paragraph,
-                    12.0,
+                    BODY_FONT_SIZE,
                     0.0,
                     "P",
                 );
@@ -208,7 +216,7 @@ pub fn render_document_pdf(doc: &TextDocument) -> Vec<u8> {
                             &mut page_index,
                             y,
                             paragraph,
-                            12.0,
+                            BODY_FONT_SIZE,
                             0.0,
                             "P",
                         );
@@ -248,25 +256,46 @@ fn render_heading(
     mut y: f32,
     heading: &Heading,
 ) -> f32 {
-    let size: f32 = match heading.level {
+    let size = heading_font_size(heading.level);
+    y = ensure_room(ctx, pdf, page_index, y, heading_height(ctx, heading));
+    let paragraph = styled_heading_paragraph(heading, size);
+    let role = format!("H{}", heading.level.clamp(1, 6));
+    y = render_paragraph(ctx, pdf, page_index, y, &paragraph, size, 0.0, &role);
+    y - HEADING_TRAILING_GAP
+}
+
+fn heading_font_size(level: u8) -> f32 {
+    match level {
         1 => 20.0,
         2 => 18.0,
         3 => 16.0,
         4 => 14.0,
         _ => 13.0,
-    };
-    // Keep a heading with at least the first two lines of following content.
-    // This is deliberately conservative: the full following paragraph applies
-    // its own keep-together rule in `render_paragraph`.
-    y = ensure_room(ctx, pdf, page_index, y, size * 3.5);
+    }
+}
+
+fn styled_heading_paragraph(heading: &Heading, size: f32) -> Paragraph {
     let mut paragraph = heading.content.clone();
     paragraph.text_style.font_size_pt = size.round() as u16;
     paragraph.text_style.bold = true;
-    paragraph.style.margin_top_mm = paragraph.style.margin_top_mm.max(2);
+    paragraph.style.margin_top_mm = paragraph
+        .style
+        .margin_top_mm
+        .max(if heading.level == 1 { 2 } else { 3 });
     paragraph.style.margin_bottom_mm = paragraph.style.margin_bottom_mm.max(2);
-    let role = format!("H{}", heading.level.clamp(1, 6));
-    y = render_paragraph(ctx, pdf, page_index, y, &paragraph, size, 0.0, &role);
-    y - 2.0
+    paragraph
+}
+
+fn heading_height(ctx: &LayoutContext, heading: &Heading) -> f32 {
+    let size = heading_font_size(heading.level);
+    let paragraph = styled_heading_paragraph(heading, size);
+    paragraph_height(
+        &paragraph,
+        size,
+        ctx.page_w - ctx.margin_l - ctx.margin_r,
+        &ctx.fonts,
+        2,
+    ) + HEADING_TRAILING_GAP
 }
 
 fn render_list(
@@ -276,23 +305,7 @@ fn render_list(
     mut y: f32,
     list: &ListBlock,
 ) -> f32 {
-    let available_width = (ctx.page_w - ctx.margin_l - ctx.margin_r - 18.0).max(48.0);
-    let list_height = list
-        .items
-        .iter()
-        .flat_map(|item| item.blocks.iter())
-        .filter_map(|block| match block {
-            Block::Paragraph(paragraph) => Some(paragraph_height(
-                paragraph,
-                12.0,
-                available_width,
-                &ctx.fonts,
-            )),
-            _ => None,
-        })
-        .sum::<f32>()
-        + list.items.len() as f32 * 4.0
-        + 4.0;
+    let list_height = list_height(ctx, list);
     let content_height = ctx.page_h - ctx.margin_t - ctx.margin_b;
     if list_height <= content_height
         && y - list_height < ctx.margin_b
@@ -314,15 +327,15 @@ fn render_list(
         page.text(
             ctx.margin_l + 2.0,
             marker_baseline,
-            12.0,
+            BODY_FONT_SIZE,
             PdfFont::Helvetica,
             &marker,
         );
         page.end_artifact();
         y = render_list_item(ctx, pdf, page_index, y, item);
-        y -= 2.0;
+        y -= LIST_ITEM_GAP;
     }
-    y - 4.0
+    y - LIST_TRAILING_GAP
 }
 
 fn render_list_item(
@@ -340,6 +353,48 @@ fn render_list_item(
     y
 }
 
+fn list_height(ctx: &LayoutContext, list: &ListBlock) -> f32 {
+    let available_width = (ctx.page_w - ctx.margin_l - ctx.margin_r - 18.0).max(48.0);
+    list.items
+        .iter()
+        .flat_map(|item| item.blocks.iter())
+        .filter_map(|block| match block {
+            Block::Paragraph(paragraph) => Some(paragraph_height(
+                paragraph,
+                BODY_FONT_SIZE,
+                available_width,
+                &ctx.fonts,
+                1,
+            )),
+            _ => None,
+        })
+        .sum::<f32>()
+        + list.items.len() as f32 * LIST_ITEM_GAP
+        + LIST_TRAILING_GAP
+}
+
+fn following_keep_height(ctx: &LayoutContext, block: &Block) -> f32 {
+    match block {
+        Block::Paragraph(paragraph) => paragraph_height(
+            paragraph,
+            BODY_FONT_SIZE,
+            ctx.page_w - ctx.margin_l - ctx.margin_r,
+            &ctx.fonts,
+            2,
+        ),
+        Block::List(list) => list_height(ctx, list),
+        Block::Table(table) => first_table_row_height(ctx, table),
+        Block::Image(image) => {
+            let max_height = ctx.page_h - ctx.margin_t - ctx.margin_b - 28.0;
+            image.size.height.as_pt().max(48.0).min(max_height) + 18.0
+        }
+        Block::Heading(heading) => heading_height(ctx, heading),
+        Block::Section(_) => BODY_FONT_SIZE * 2.5,
+        Block::HorizontalRule => 14.0,
+        Block::PageBreak => 0.0,
+    }
+}
+
 fn render_paragraph(
     ctx: &LayoutContext,
     pdf: &mut PdfDocument,
@@ -354,7 +409,8 @@ fn render_paragraph(
     let right = ctx.margin_r + mm_to_pt(paragraph.style.margin_right_mm);
     let available_width = (ctx.page_w - left - right).max(48.0);
     let margin_top = mm_to_pt(paragraph.style.margin_top_mm);
-    let margin_bottom = mm_to_pt(paragraph.style.margin_bottom_mm.max(1));
+    let minimum_bottom_mm = minimum_paragraph_bottom_mm(semantic_role);
+    let margin_bottom = mm_to_pt(paragraph.style.margin_bottom_mm.max(minimum_bottom_mm));
     let runs = paragraph_runs(paragraph, default_size, &ctx.fonts);
     let lines = layout_runs(&runs, available_width);
     let line_heights = lines
@@ -391,7 +447,7 @@ fn render_paragraph(
                 left - 4.0,
                 y - 3.0,
                 available_width + 8.0,
-                line_height + 4.0,
+                line_height,
                 r,
                 g,
                 b,
@@ -420,6 +476,7 @@ fn paragraph_height(
     default_size: f32,
     available_width: f32,
     fonts: &FontResolver,
+    minimum_bottom_mm: u16,
 ) -> f32 {
     let lines = layout_runs(
         &paragraph_runs(paragraph, default_size, fonts),
@@ -435,7 +492,15 @@ fn paragraph_height(
                     .fold(default_size * 1.25, f32::max)
             })
             .sum::<f32>()
-        + mm_to_pt(paragraph.style.margin_bottom_mm.max(1))
+        + mm_to_pt(paragraph.style.margin_bottom_mm.max(minimum_bottom_mm))
+}
+
+fn minimum_paragraph_bottom_mm(semantic_role: &str) -> u16 {
+    if semantic_role == "P" || semantic_role.starts_with('H') {
+        2
+    } else {
+        1
+    }
 }
 
 fn render_table(
@@ -445,6 +510,45 @@ fn render_table(
     mut y: f32,
     table: &Table,
 ) -> f32 {
+    let col_widths = table_column_widths(ctx, table);
+    let row_layouts = table
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(row_index, row)| layout_table_row(row, &col_widths, &ctx.fonts, row_index == 0))
+        .collect::<Vec<_>>();
+
+    for (row_index, row) in row_layouts.iter().enumerate() {
+        let previous_page = *page_index;
+        y = ensure_room(ctx, pdf, page_index, y, row.height);
+        if *page_index != previous_page && row_index > 0 {
+            if let Some(header) = row_layouts.first() {
+                y = draw_table_row(ctx, pdf, *page_index, y, &col_widths, header, true, false);
+                y = ensure_room(ctx, pdf, page_index, y, row.height);
+            }
+        }
+        y = draw_table_row(
+            ctx,
+            pdf,
+            *page_index,
+            y,
+            &col_widths,
+            row,
+            row_index == 0,
+            row_index > 0 && row_index % 2 == 0,
+        );
+    }
+
+    y - TABLE_TRAILING_GAP
+}
+
+#[derive(Clone, Debug)]
+struct TableRowLayout {
+    cells: Vec<Vec<LineLayout>>,
+    height: f32,
+}
+
+fn table_column_widths(ctx: &LayoutContext, table: &Table) -> Vec<f32> {
     let cols = table
         .rows
         .iter()
@@ -453,88 +557,159 @@ fn render_table(
         .unwrap_or(1)
         .max(1);
     let available_width = ctx.page_w - ctx.margin_l - ctx.margin_r;
-    let mut col_widths = vec![available_width / cols as f32; cols];
+    let mut minimums = vec![32.0_f32; cols];
+    let mut preferred = vec![32.0_f32; cols];
     for row in &table.rows {
         for (index, cell) in row.cells.iter().enumerate() {
             let text = cell_plain_text(cell);
-            let suggested = measure_text(&text, 10.0, PdfFont::Helvetica) + 12.0;
-            col_widths[index] = col_widths[index].max(suggested.min(available_width * 0.55));
-        }
-    }
-    let total: f32 = col_widths.iter().sum();
-    if total > available_width {
-        let scale = available_width / total;
-        for width in &mut col_widths {
-            *width *= scale;
+            let longest_token = cell
+                .paragraphs
+                .iter()
+                .flat_map(|paragraph| paragraph_runs(paragraph, TABLE_FONT_SIZE, &ctx.fonts))
+                .flat_map(|run| {
+                    run.text
+                        .split_whitespace()
+                        .map(|token| measure_text(token, run.size, run.font))
+                        .collect::<Vec<_>>()
+                })
+                .fold(0.0_f32, f32::max);
+            let minimum = (longest_token
+                + TABLE_CELL_HORIZONTAL_PADDING
+                + TABLE_WORD_FIT_SLOP)
+                .clamp(32.0, available_width * 0.22);
+            let ideal = (measure_text(&text, TABLE_FONT_SIZE, PdfFont::Helvetica)
+                + TABLE_CELL_HORIZONTAL_PADDING)
+                .clamp(minimum, available_width * 0.42);
+            minimums[index] = minimums[index].max(minimum);
+            preferred[index] = preferred[index].max(ideal);
         }
     }
 
-    for (row_index, row) in table.rows.iter().enumerate() {
-        let mut cell_lines = Vec::new();
-        let mut row_height: f32 = 18.0;
-        for (index, cell) in row.cells.iter().enumerate() {
-            let lines = layout_cell(cell, col_widths[index] - 10.0, &ctx.fonts);
-            let cell_height: f32 = lines
-                .iter()
-                .map(|line| {
-                    line.runs
-                        .iter()
-                        .map(|run| run.size * 1.2)
-                        .fold(12.0, f32::max)
-                })
-                .sum::<f32>()
-                + 8.0;
-            row_height = row_height.max(cell_height);
-            cell_lines.push(lines);
+    let minimum_total = minimums.iter().sum::<f32>();
+    if minimum_total >= available_width {
+        let scale = available_width / minimum_total;
+        for width in &mut minimums {
+            *width *= scale;
         }
-        y = ensure_room(ctx, pdf, page_index, y, row_height + 2.0);
-        let top = y;
-        let bottom = y - row_height;
-        let page = pdf.page_mut(*page_index).expect("page");
-        let mut x = ctx.margin_l;
-        for (index, width) in col_widths.iter().enumerate() {
-            if row_index == 0 {
-                page.begin_artifact();
-                page.rect_fill_rgb(x, bottom, *width, row_height, 0.94, 0.93, 0.90);
-                page.end_artifact();
-            }
-            page.begin_artifact();
-            page.rect_stroke_rgb(x, bottom, *width, row_height, 0.50, 0.50, 0.50);
-            page.end_artifact();
-            let mut line_y = top - 12.0;
-            let Some(lines_for_cell) = cell_lines.get(index) else {
-                x += *width;
-                continue;
-            };
-            for line in lines_for_cell {
+        return minimums;
+    }
+
+    let remaining = available_width - minimum_total;
+    let needs = preferred
+        .iter()
+        .zip(&minimums)
+        .map(|(ideal, minimum)| (ideal - minimum).max(0.0))
+        .collect::<Vec<_>>();
+    let total_need = needs.iter().sum::<f32>();
+    if total_need <= f32::EPSILON {
+        let extra = remaining / cols as f32;
+        return minimums.into_iter().map(|width| width + extra).collect();
+    }
+
+    minimums
+        .into_iter()
+        .zip(needs)
+        .map(|(minimum, need)| minimum + remaining * need / total_need)
+        .collect()
+}
+
+fn layout_table_row(
+    row: &lo_core::TableRow,
+    col_widths: &[f32],
+    fonts: &FontResolver,
+    header: bool,
+) -> TableRowLayout {
+    let mut cells = Vec::new();
+    let mut height = 18.0_f32;
+    for (index, cell) in row.cells.iter().enumerate() {
+        let width = col_widths.get(index).copied().unwrap_or(48.0)
+            - TABLE_CELL_HORIZONTAL_PADDING;
+        let lines = layout_cell(cell, width.max(16.0), fonts, header);
+        let content_height = lines.iter().map(table_line_height).sum::<f32>();
+        height = height.max(content_height + TABLE_CELL_VERTICAL_PADDING);
+        cells.push(lines);
+    }
+    TableRowLayout { cells, height }
+}
+
+fn draw_table_row(
+    ctx: &LayoutContext,
+    pdf: &mut PdfDocument,
+    page_index: usize,
+    top: f32,
+    col_widths: &[f32],
+    row: &TableRowLayout,
+    header: bool,
+    shaded: bool,
+) -> f32 {
+    let bottom = top - row.height;
+    let page = pdf.page_mut(page_index).expect("page");
+    let mut x = ctx.margin_l;
+    for (index, width) in col_widths.iter().enumerate() {
+        page.begin_artifact();
+        if header {
+            page.rect_fill_rgb(x, bottom, *width, row.height, 0.12, 0.18, 0.30);
+        } else if shaded {
+            page.rect_fill_rgb(x, bottom, *width, row.height, 0.965, 0.972, 0.982);
+        }
+        page.rect_stroke_rgb(x, bottom, *width, row.height, 0.72, 0.75, 0.79);
+        page.end_artifact();
+
+        let mut line_y = top - TABLE_CELL_VERTICAL_PADDING / 2.0 - TABLE_FONT_SIZE;
+        if let Some(lines) = row.cells.get(index) {
+            for line in lines {
                 render_line(
                     page,
                     line,
-                    x + 5.0,
+                    x + TABLE_CELL_HORIZONTAL_PADDING / 2.0,
                     line_y,
                     Alignment::Start,
-                    *width - 10.0,
+                    *width - TABLE_CELL_HORIZONTAL_PADDING,
                     false,
-                    if row_index == 0 { "TH" } else { "TD" },
+                    if header { "TH" } else { "TD" },
                 );
-                line_y -= line
-                    .runs
-                    .iter()
-                    .map(|run| run.size * 1.2)
-                    .fold(12.0, f32::max);
+                line_y -= table_line_height(line);
             }
-            x += *width;
         }
-        y = bottom - 6.0;
+        x += *width;
     }
-
-    y - 2.0
+    bottom
 }
 
-fn layout_cell(cell: &TableCell, width: f32, fonts: &FontResolver) -> Vec<LineLayout> {
+fn table_line_height(line: &LineLayout) -> f32 {
+    line.runs
+        .iter()
+        .map(|run| run.size * 1.25)
+        .fold(TABLE_FONT_SIZE * 1.25, f32::max)
+}
+
+fn first_table_row_height(ctx: &LayoutContext, table: &Table) -> f32 {
+    let widths = table_column_widths(ctx, table);
+    table
+        .rows
+        .iter()
+        .take(2)
+        .enumerate()
+        .map(|(row_index, row)| layout_table_row(row, &widths, &ctx.fonts, row_index == 0).height)
+        .sum()
+}
+
+fn layout_cell(
+    cell: &TableCell,
+    width: f32,
+    fonts: &FontResolver,
+    header: bool,
+) -> Vec<LineLayout> {
     let mut out = Vec::new();
     for paragraph in &cell.paragraphs {
-        let runs = paragraph_runs(paragraph, 10.0, fonts);
+        let mut runs = paragraph_runs(paragraph, TABLE_FONT_SIZE, fonts);
+        if header {
+            for run in &mut runs {
+                run.font = PdfFont::HelveticaBold;
+                run.color = (1.0, 1.0, 1.0);
+                run.underline = false;
+            }
+        }
         let lines = layout_runs(&runs, width);
         out.extend(lines);
     }
@@ -779,6 +954,22 @@ fn layout_runs(runs: &[StyledRun], max_width: f32) -> Vec<LineLayout> {
             }
             let token_width = measure_text(&token.text, token.size, token.font);
             let is_space = token.text.chars().all(|ch| ch.is_whitespace());
+            if !is_space && token_width > max_width {
+                if !current.runs.is_empty() {
+                    trim_trailing_spaces(&mut current);
+                    lines.push(std::mem::take(&mut current));
+                }
+                for fragment in split_run_to_width(&token, max_width) {
+                    let fragment_width =
+                        measure_text(&fragment.text, fragment.size, fragment.font);
+                    if !current.runs.is_empty() && current.width + fragment_width > max_width {
+                        lines.push(std::mem::take(&mut current));
+                    }
+                    current.width += fragment_width;
+                    current.runs.push(fragment);
+                }
+                continue;
+            }
             if !current.runs.is_empty() && current.width + token_width > max_width && !is_space {
                 trim_trailing_spaces(&mut current);
                 lines.push(std::mem::take(&mut current));
@@ -795,6 +986,37 @@ fn layout_runs(runs: &[StyledRun], max_width: f32) -> Vec<LineLayout> {
         lines.push(current);
     }
     lines
+}
+
+fn split_run_to_width(run: &StyledRun, max_width: f32) -> Vec<StyledRun> {
+    let mut fragments = Vec::new();
+    let mut buffer = String::new();
+    let mut width = 0.0_f32;
+    for character in run.text.chars() {
+        let character_width = measure_text(&character.to_string(), run.size, run.font);
+        if !buffer.is_empty() && width + character_width > max_width {
+            fragments.push(styled_run_with_text(run, std::mem::take(&mut buffer)));
+            width = 0.0;
+        }
+        buffer.push(character);
+        width += character_width;
+    }
+    if !buffer.is_empty() {
+        fragments.push(styled_run_with_text(run, buffer));
+    }
+    fragments
+}
+
+fn styled_run_with_text(template: &StyledRun, text: String) -> StyledRun {
+    StyledRun {
+        text,
+        font: template.font,
+        size: template.size,
+        color: template.color,
+        background: template.background,
+        underline: template.underline,
+        link: template.link.clone(),
+    }
 }
 
 fn tokenize_run(run: &StyledRun) -> Vec<StyledRun> {
@@ -841,6 +1063,9 @@ fn tokenize_run(run: &StyledRun) -> Vec<StyledRun> {
             continue;
         }
         buffer.push(ch);
+        if matches!(ch, '/' | '-' | '_' | '?' | '&' | '=') {
+            flush(&mut out, &mut buffer, run);
+        }
     }
     flush(&mut out, &mut buffer, run);
     out
@@ -1659,5 +1884,31 @@ fn collect_font_names(root: &PathBuf, out: &mut BTreeSet<String>) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{layout_runs, StyledRun};
+    use lo_core::PdfFont;
+
+    #[test]
+    fn unbroken_urls_wrap_inside_the_available_width() {
+        let run = StyledRun {
+            text: concat!(
+                "https://example.com/a/very/long/path/that/must/not/",
+                "paint/outside/the/page",
+            )
+            .to_string(),
+            font: PdfFont::Helvetica,
+            size: 11.0,
+            color: (0.0, 0.0, 0.0),
+            background: None,
+            underline: false,
+            link: None,
+        };
+        let lines = layout_runs(&[run], 96.0);
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|line| line.width <= 96.01));
     }
 }

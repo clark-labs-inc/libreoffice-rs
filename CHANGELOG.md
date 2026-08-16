@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.5 - Polished Markdown PDF layout
+
+- Added content-aware table column widths, roomier cells, repeated headers,
+  zebra striping, and clean contiguous borders for readable multi-page tables.
+- Kept headings with their following content, improved document spacing, and
+  wrapped long URLs and other unbroken tokens inside the page bounds.
+- Preserved dollar-denominated funding amounts as text instead of treating
+  paired currency markers as inline math.
+- Corrected code-block background painting so later lines do not obscure text.
+
 ## 0.5.4 - Bounded raster memory and reliable batch conversion
 
 - Reject raster requests above 300 DPI before parsing a DOCX/PPTX or allocating
