@@ -9,6 +9,8 @@
 - Preserved dollar-denominated funding amounts as text instead of treating
   paired currency markers as inline math.
 - Corrected code-block background painting so later lines do not obscure text.
+- Raised the workspace MSRV to Rust 1.88 to match the current `image` 0.25.10
+  dependency floor.
 
 ## 0.5.4 - Bounded raster memory and reliable batch conversion
 
