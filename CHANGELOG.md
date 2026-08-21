@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.6 - DOCX drawing and media import
+
+- Import DrawingML and legacy VML image relationships from DOCX paragraphs
+  and tables into Writer image blocks instead of silently dropping them.
+- Preserve embedded image bytes, MIME types, OOXML extents, filenames, and
+  normalized alternative text through DOCX-to-PDF conversion.
+- Ignore trailing empty DOCX paragraphs that would otherwise create a blank
+  final PDF page after image-heavy content.
+- Add an end-to-end DOCX-to-PDF regression proving paragraph and table images
+  are embedded in the generated PDF.
+
 ## 0.5.5 - Polished Markdown PDF layout
 
 - Added content-aware table column widths, roomier cells, repeated headers,

@@ -1,4 +1,5 @@
 pub mod docx;
+mod docx_images;
 mod font_metrics;
 pub mod html;
 pub mod import;
