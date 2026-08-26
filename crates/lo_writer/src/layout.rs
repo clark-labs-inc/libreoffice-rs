@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use lo_core::{
     decode_png, decode_webp, parse_xml_document, Alignment, Block, Heading, ImageBlock, Inline,
-    ListBlock, ListItem, PageStyle, Paragraph, PdfDocument, PdfFont, Table, TableCell,
+    ListBlock, ListItem, PageStyle, Paragraph, PdfDocument, PdfFont, Result, Table, TableCell,
     TextDocument, XmlNode,
 };
 
@@ -57,6 +57,11 @@ const LIST_TRAILING_GAP: f32 = 7.0;
 const TABLE_TRAILING_GAP: f32 = 14.0;
 
 pub fn render_document_pdf(doc: &TextDocument) -> Vec<u8> {
+    try_render_document_pdf(doc)
+        .expect("PDF text contains Unicode that no installed font can preserve")
+}
+
+pub fn try_render_document_pdf(doc: &TextDocument) -> Result<Vec<u8>> {
     let ctx = LayoutContext::from_page_style(&doc.page_style);
     let mut pdf = PdfDocument::new();
     let mut page_index = pdf.add_page(ctx.page_w, ctx.page_h);
@@ -246,7 +251,7 @@ pub fn render_document_pdf(doc: &TextDocument) -> Vec<u8> {
         }
     }
 
-    pdf.finish()
+    pdf.try_finish()
 }
 
 fn render_heading(

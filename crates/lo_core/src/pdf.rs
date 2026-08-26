@@ -15,6 +15,12 @@ use crate::{LoError, Result};
 // Writer surface kept for backward compatibility.
 // ---------------------------------------------------------------------------
 
+pub(crate) fn pdf_can_encode_win_ansi(value: &str) -> bool {
+    value
+        .chars()
+        .all(|ch| ch == '\t' || ch == '\u{00AD}' || win_ansi_byte(ch).is_some())
+}
+
 pub(crate) fn pdf_escape_win_ansi(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -35,6 +41,19 @@ pub(crate) fn pdf_escape_win_ansi(value: &str) -> String {
         }
     }
     out
+}
+
+pub(crate) fn pdf_text_string(value: &str) -> String {
+    if pdf_can_encode_win_ansi(value) {
+        format!("({})", pdf_escape_win_ansi(value))
+    } else {
+        let mut encoded = String::from("<FEFF");
+        for unit in value.encode_utf16() {
+            encoded.push_str(&format!("{unit:04X}"));
+        }
+        encoded.push('>');
+        encoded
+    }
 }
 
 fn win_ansi_byte(ch: char) -> Option<u8> {
@@ -76,32 +95,26 @@ fn win_ansi_byte(ch: char) -> Option<u8> {
 ///
 /// `page_width` and `page_height` are interpreted as PDF user-space points.
 pub fn write_text_pdf(lines: &[String], page_width: Length, page_height: Length) -> Vec<u8> {
+    try_write_text_pdf(lines, page_width, page_height)
+        .expect("PDF text contains Unicode that no installed font can preserve")
+}
+
+pub fn try_write_text_pdf(
+    lines: &[String],
+    page_width: Length,
+    page_height: Length,
+) -> Result<Vec<u8>> {
     let width_pt = page_width.as_pt();
     let height_pt = page_height.as_pt();
-    let mut content = String::new();
-    content.push_str("BT\n/F1 12 Tf\n14 TL\n50 ");
-    content.push_str(&format!("{:.2}", height_pt - 50.0));
-    content.push_str(" Td\n");
-    for (index, line) in lines.iter().enumerate() {
-        if index > 0 {
-            content.push_str("T*\n");
-        }
-        content.push('(');
-        content.push_str(&pdf_escape_win_ansi(line));
-        content.push_str(") Tj\n");
+    let mut document = crate::PdfDocument::new();
+    let page_index = document.add_page(width_pt, height_pt);
+    let page = document.page_mut(page_index)?;
+    let mut y = height_pt - 50.0;
+    for line in lines {
+        page.text(50.0, y, 12.0, crate::PdfFont::Helvetica, line);
+        y -= 14.0;
     }
-    content.push_str("ET\n");
-    let objects = vec![
-        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width_pt:.2} {height_pt:.2}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
-        ),
-        format!("<< /Length {} >>\nstream\n{}endstream", content.len(), content),
-        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
-            .to_string(),
-    ];
-    pdf_from_objects(&objects)
+    document.try_finish()
 }
 
 /// Serialize a list of already-rendered PDF object bodies into a complete

@@ -1,6 +1,6 @@
 [package]
 name = "lo_core"
-version.workspace = true
+version = "0.5.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,4 +14,7 @@ name = "lo_core"
 path = "src/lib.rs"
 
 [dependencies]
+fontdb = "0.24.0"
 image = { version = "=0.25.10", default-features = false, features = ["webp"] }
+subsetter = { version = "0.2.6", default-features = false }
+ttf-parser = "0.25.1"

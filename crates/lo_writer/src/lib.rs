@@ -17,7 +17,7 @@ pub use import::{
 };
 pub use legacy_doc::extract_text_from_doc;
 pub use markdown::to_markdown;
-pub use pdf::{to_pdf, to_pdf_with_size};
+pub use pdf::{to_pdf, to_pdf_with_size, try_to_pdf};
 pub use raster::{render_jpeg_pages, render_pages, render_png_pages};
 pub use svg::render_svg;
 
@@ -76,7 +76,7 @@ pub fn save_as(document: &TextDocument, format: &str) -> Result<Vec<u8>> {
             );
             Ok(render_svg(document, size).into_bytes())
         }
-        "pdf" => Ok(to_pdf(document)),
+        "pdf" => try_to_pdf(document),
         "odt" => {
             // Round-trip through a temp file using lo_odf::save_text_document.
             let tmp = std::env::temp_dir().join(format!(

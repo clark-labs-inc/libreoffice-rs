@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.7 - Searchable Unicode PDF text
+
+- Preserve Chinese and other non-WinAnsi text in PDF exports with a subsetted,
+  embedded system font instead of replacing unsupported characters with `?`.
+- Emit Identity-H CID fonts and ToUnicode maps so generated text remains
+  searchable, selectable, and extractable.
+- Fail Markdown conversion when no installed font covers the required Unicode
+  characters; install Noto Sans CJK or set `LIBREOFFICE_PURE_UNICODE_FONT` to
+  select a specific font file.
+- Use full-em CJK layout metrics so Chinese text wraps at the rendered width.
+- Add a licensed Noto Sans SC regression subset and end-to-end Chinese PDF
+  extraction coverage.
+
 ## 0.5.6 - DOCX drawing and media import
 
 - Import DrawingML and legacy VML image relationships from DOCX paragraphs

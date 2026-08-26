@@ -1,4 +1,5 @@
 use lo_core::PdfFont;
+use unicode_width::UnicodeWidthChar;
 
 const HELVETICA: [u16; 95] = [
     278, 278, 355, 556, 556, 889, 667, 222, 333, 333, 389, 584, 278, 333, 278, 278,
@@ -71,6 +72,7 @@ fn glyph_width(ch: char, font: PdfFont) -> u16 {
         '\u{2013}' => 556,
         '\u{2014}' => 1000,
         '\u{2026}' => 1000,
+        _ if ch.width() == Some(2) => 1000,
         _ => 600,
     }
 }
@@ -120,5 +122,10 @@ mod tests {
             measure_text("Zürich", 12.0, PdfFont::Helvetica),
             measure_text("Zurich", 12.0, PdfFont::Helvetica)
         );
+    }
+
+    #[test]
+    fn cjk_characters_use_full_em_metrics() {
+        assert_eq!(measure_text("中文", 12.0, PdfFont::Helvetica), 24.0);
     }
 }
