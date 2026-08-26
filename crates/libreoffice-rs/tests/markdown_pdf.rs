@@ -8,11 +8,14 @@ use lo_core::{parse_pdf, RasterImage, Rgba};
 struct UnicodeFontOverride(Option<std::ffi::OsString>);
 
 impl UnicodeFontOverride {
-    fn test_fixture() -> Self {
+    fn test_fixtures() -> Self {
         let previous = std::env::var_os("LIBREOFFICE_PURE_UNICODE_FONT");
-        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/NotoSansSC-regression.ttf");
-        std::env::set_var("LIBREOFFICE_PURE_UNICODE_FONT", fixture);
+        let symbols = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/NotoSansSymbols2-regression.ttf");
+        let fixtures = std::env::join_paths([fixtures, symbols]).expect("font fixture paths");
+        std::env::set_var("LIBREOFFICE_PURE_UNICODE_FONT", fixtures);
         Self(previous)
     }
 }
@@ -172,8 +175,8 @@ fn generic_path_conversion_uses_the_asset_aware_markdown_pipeline() {
 
 #[test]
 fn markdown_pdf_embeds_and_extracts_simplified_chinese() {
-    let _font = UnicodeFontOverride::test_fixture();
-    let markdown = "# 90天设计创业执行清单\n\n中文支持：阶段一，完成品牌定位与客户验证。\n\n- [ ] PDF 保留原始字符，不得替换为问号。\n- “智能对象” — Behance\n";
+    let _font = UnicodeFontOverride::test_fixtures();
+    let markdown = "# 90天设计创业执行清单\n\n中文支持：阶段一，完成品牌定位与客户验证。每做一项就勾选 ☐。\n\n- [ ] PDF 保留原始字符，不得替换为问号。\n- “智能对象” — Behance\n";
     let pdf = markdown_to_pdf_bytes("chinese-regression.md", markdown.as_bytes())
         .expect("render Chinese Markdown");
 
@@ -190,10 +193,17 @@ fn markdown_pdf_embeds_and_extracts_simplified_chinese() {
     let text = parsed.extract_text();
     for expected in [
         "90天设计创业执行清单",
-        "中文支持：阶段一，完成品牌定位与客户验证。",
+        "中文支持：阶段一，完成品牌定位与客户验证。每做一项就勾选 ☐。",
         "PDF 保留原始字符，不得替换为问号。",
         "“智能对象” — Behance",
     ] {
         assert!(text.contains(expected), "missing {expected:?} from {text:?}");
     }
+    assert_eq!(
+        pdf.windows(b"/Subtype /Type0".len())
+            .filter(|window| *window == b"/Subtype /Type0")
+            .count(),
+        2,
+        "Chinese and symbol fallback fonts should both be embedded"
+    );
 }

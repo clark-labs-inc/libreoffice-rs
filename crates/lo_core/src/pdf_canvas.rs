@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 use crate::pdf::{pdf_can_encode_win_ansi, pdf_escape_win_ansi, pdf_text_string};
 use crate::pdf::pdf_from_binary_objects;
-use crate::unicode_font::{build_unicode_font, EmbeddedUnicodeFont};
+use crate::unicode_font::{build_unicode_fonts, EmbeddedUnicodeFont};
 use crate::{LoError, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,9 +65,15 @@ pub struct PdfPage {
     pub width: f32,
     pub height: f32,
     commands: String,
-    unicode_texts: Vec<String>,
+    unicode_texts: Vec<UnicodeText>,
     links: Vec<PdfLink>,
     tags: Vec<PdfTag>,
+}
+
+#[derive(Clone, Debug)]
+struct UnicodeText {
+    text: String,
+    size: f32,
 }
 
 impl PdfPage {
@@ -98,7 +104,7 @@ impl PdfPage {
         b: f32,
     ) {
         let unicode = !pdf_can_encode_win_ansi(text);
-        let resource_name = if unicode { "FU" } else { font.resource_name() };
+        let resource_name = if unicode { "FU0" } else { font.resource_name() };
         self.commands.push_str("BT\n");
         self.commands
             .push_str(&format!("{r:.3} {g:.3} {b:.3} rg\n"));
@@ -112,9 +118,12 @@ impl PdfPage {
             .push_str(&format!("1 0 {shear:.2} 1 {x:.2} {y:.2} Tm\n"));
         if unicode {
             let index = self.unicode_texts.len();
-            self.unicode_texts.push(text.to_string());
+            self.unicode_texts.push(UnicodeText {
+                text: text.to_string(),
+                size,
+            });
             self.commands
-                .push_str(&format!("__LO_UNICODE_TEXT_{index}__ Tj\n"));
+                .push_str(&format!("__LO_UNICODE_TEXT_{index}__\n"));
         } else {
             self.commands.push('(');
             self.commands.push_str(&pdf_escape_win_ansi(text));
@@ -453,12 +462,12 @@ impl PdfDocument {
             .pages
             .iter()
             .flat_map(|page| page.unicode_texts.iter())
-            .flat_map(|text| text.chars())
+            .flat_map(|text| text.text.chars())
             .collect::<BTreeSet<_>>();
-        let unicode_font = if unicode_chars.is_empty() {
-            None
+        let unicode_fonts = if unicode_chars.is_empty() {
+            Vec::new()
         } else {
-            Some(build_unicode_font(&unicode_chars)?)
+            build_unicode_fonts(&unicode_chars)?
         };
         let mut objects: Vec<Vec<u8>> = Vec::new();
         objects.push(Vec::new()); // catalog
@@ -480,9 +489,10 @@ impl PdfDocument {
                 .into_bytes(),
             );
         }
-        let unicode_font_obj = unicode_font
-            .as_ref()
-            .map(|font| append_unicode_font_objects(&mut objects, font));
+        let unicode_font_objects = unicode_fonts
+            .iter()
+            .map(|font| append_unicode_font_objects(&mut objects, font))
+            .collect::<Vec<_>>();
         let page_start = objects.len() + 1;
         let image_start = page_start + self.pages.len() * 2;
         let annotation_start = image_start + self.images.len();
@@ -514,9 +524,11 @@ impl PdfDocument {
             let page_obj = page_start + index * 2;
             let content_obj = page_obj + 1;
             kids.push(format!("{} 0 R", page_obj));
-            let unicode_resource = unicode_font_obj
-                .map(|object| format!(" /FU {object} 0 R"))
-                .unwrap_or_default();
+            let unicode_resource = unicode_font_objects
+                .iter()
+                .enumerate()
+                .map(|(font_index, object)| format!(" /FU{font_index} {object} 0 R"))
+                .collect::<String>();
             let resources = format!("<< /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R /F5 7 0 R /F6 8 0 R /F7 9 0 R{unicode_resource} >>{xobjects} >>");
             let annotations = if page.links.is_empty() {
                 String::new()
@@ -536,7 +548,7 @@ impl PdfDocument {
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.2} {:.2}] /Resources {} /Contents {} 0 R /StructParents {}{} >>",
                 page.width, page.height, resources, content_obj, index, annotations
             ).into_bytes());
-            let commands = render_page_commands(page, unicode_font.as_ref())?;
+            let commands = render_page_commands(page, &unicode_fonts)?;
             objects.push(
                 format!(
                     "<< /Length {} >>\nstream\n{}endstream",
@@ -645,19 +657,70 @@ fn empty_pdf() -> Result<Vec<u8>> {
 
 fn render_page_commands(
     page: &PdfPage,
-    unicode_font: Option<&EmbeddedUnicodeFont>,
+    unicode_fonts: &[EmbeddedUnicodeFont],
 ) -> Result<String> {
     let mut commands = page.commands.clone();
     for (index, text) in page.unicode_texts.iter().enumerate() {
-        let font = unicode_font.ok_or_else(|| {
-            LoError::InvalidInput("Unicode PDF text is missing its embedded font".to_string())
-        })?;
+        let encoded = encode_unicode_text(text, unicode_fonts)?;
         commands = commands.replace(
             &format!("__LO_UNICODE_TEXT_{index}__"),
-            &font.encode_hex(text)?,
+            &encoded,
         );
     }
     Ok(commands)
+}
+
+fn encode_unicode_text(text: &UnicodeText, fonts: &[EmbeddedUnicodeFont]) -> Result<String> {
+    let mut encoded = String::new();
+    let mut active_font = None;
+    let mut segment = String::new();
+    for ch in text.text.chars() {
+        let font_index = fonts
+            .iter()
+            .position(|font| font.char_to_cid.contains_key(&ch))
+            .ok_or_else(|| {
+                LoError::Unsupported(format!(
+                    "Unicode PDF fonts do not contain U+{:04X}",
+                    ch as u32
+                ))
+            })?;
+        if active_font.is_some_and(|active| active != font_index) {
+            append_unicode_segment(
+                &mut encoded,
+                active_font.expect("active font"),
+                text.size,
+                &segment,
+                fonts,
+            )?;
+            segment.clear();
+        }
+        active_font = Some(font_index);
+        segment.push(ch);
+    }
+    if let Some(font_index) = active_font {
+        append_unicode_segment(
+            &mut encoded,
+            font_index,
+            text.size,
+            &segment,
+            fonts,
+        )?;
+    }
+    Ok(encoded)
+}
+
+fn append_unicode_segment(
+    output: &mut String,
+    font_index: usize,
+    size: f32,
+    text: &str,
+    fonts: &[EmbeddedUnicodeFont],
+) -> Result<()> {
+    output.push_str(&format!(
+        "/FU{font_index} {size} Tf\n{} Tj\n",
+        fonts[font_index].encode_hex(text)?
+    ));
+    Ok(())
 }
 
 fn append_unicode_font_objects(

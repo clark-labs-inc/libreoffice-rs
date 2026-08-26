@@ -1,7 +1,6 @@
 //! Unicode font discovery, subsetting, and PDF CID font metadata.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use fontdb::Database;
 use subsetter::{subset, GlyphRemapper};
@@ -79,78 +78,73 @@ impl EmbeddedUnicodeFont {
     }
 }
 
-pub(crate) fn build_unicode_font(chars: &BTreeSet<char>) -> Result<EmbeddedUnicodeFont> {
+pub(crate) fn build_unicode_fonts(chars: &BTreeSet<char>) -> Result<Vec<EmbeddedUnicodeFont>> {
     let mut database = Database::new();
-    if let Some(path) = std::env::var_os(FONT_OVERRIDE_ENV) {
-        database.load_font_file(Path::new(&path)).map_err(|error| {
-            LoError::Io(format!(
-                "loading Unicode PDF font {}: {error}",
-                Path::new(&path).display()
-            ))
-        })?;
+    if let Some(paths) = std::env::var_os(FONT_OVERRIDE_ENV) {
+        for path in std::env::split_paths(&paths) {
+            database.load_font_file(&path).map_err(|error| {
+                LoError::Io(format!(
+                    "loading Unicode PDF font {}: {error}",
+                    path.display()
+                ))
+            })?;
+        }
     } else {
         database.load_system_fonts();
     }
 
     let mut candidates = database.faces().collect::<Vec<_>>();
     candidates.sort_by_key(|face| std::cmp::Reverse(font_preference(face)));
-    let selected = candidates.iter().find(|face| {
-        database
-            .with_face_data(face.id, |data, index| {
-                Face::parse(data, index)
-                    .ok()
-                    .is_some_and(|parsed| chars.iter().all(|ch| parsed.glyph_index(*ch).is_some()))
-            })
-            .unwrap_or(false)
-    });
-    let selected = selected.ok_or_else(|| {
-        let best = candidates.iter().max_by_key(|face| {
-            database
+    let mut remaining = chars.clone();
+    let mut fonts = Vec::new();
+    while !remaining.is_empty() {
+        let mut selected = None;
+        let mut selected_chars = BTreeSet::new();
+        for face in &candidates {
+            let covered = database
                 .with_face_data(face.id, |data, index| {
                     Face::parse(data, index)
                         .ok()
                         .map(|parsed| {
-                            chars
+                            remaining
                                 .iter()
                                 .filter(|ch| parsed.glyph_index(**ch).is_some())
-                                .count()
-                        })
-                        .unwrap_or(0)
-                })
-                .unwrap_or(0)
-        });
-        let missing = best
-            .and_then(|face| {
-                database.with_face_data(face.id, |data, index| {
-                    Face::parse(data, index)
-                        .ok()
-                        .map(|parsed| {
-                            chars
-                                .iter()
-                                .filter(|ch| parsed.glyph_index(**ch).is_none())
                                 .copied()
-                                .collect::<Vec<_>>()
+                                .collect::<BTreeSet<_>>()
                         })
-                        .unwrap_or_else(|| chars.iter().copied().collect())
+                        .unwrap_or_default()
                 })
+                .unwrap_or_default();
+            if covered.len() > selected_chars.len() {
+                selected = Some(face);
+                selected_chars = covered;
+            }
+        }
+        let Some(selected) = selected.filter(|_| !selected_chars.is_empty()) else {
+            let sample = remaining
+                .iter()
+                .take(8)
+                .map(|ch| format!("U+{:04X}", *ch as u32))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(LoError::Unsupported(format!(
+                "no installed font can preserve Unicode PDF text; missing {sample}; install Noto Sans CJK and Noto Symbols or set {FONT_OVERRIDE_ENV}"
+            )));
+        };
+        let font = database
+            .with_face_data(selected.id, |data, index| {
+                build_from_face(
+                    data,
+                    index,
+                    &selected.post_script_name,
+                    &selected_chars,
+                )
             })
-            .unwrap_or_else(|| chars.iter().copied().collect());
-        let sample = missing
-            .iter()
-            .take(8)
-            .map(|ch| format!("U+{:04X}", *ch as u32))
-            .collect::<Vec<_>>()
-            .join(", ");
-        LoError::Unsupported(format!(
-            "no installed font can preserve all Unicode PDF text; missing {sample}; install Noto Sans CJK or set {FONT_OVERRIDE_ENV}"
-        ))
-    })?;
-
-    database
-        .with_face_data(selected.id, |data, index| {
-            build_from_face(data, index, &selected.post_script_name, chars)
-        })
-        .ok_or_else(|| LoError::Io("reading selected Unicode PDF font".to_string()))?
+            .ok_or_else(|| LoError::Io("reading selected Unicode PDF font".to_string()))??;
+        remaining.retain(|ch| !selected_chars.contains(ch));
+        fonts.push(font);
+    }
+    Ok(fonts)
 }
 
 fn build_from_face(

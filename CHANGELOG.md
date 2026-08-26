@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.8 - Mixed-script PDF font fallback
+
+- Embed multiple subsetted fonts when one installed font cannot cover every
+  character in a PDF, preserving mixed CJK and symbol text such as `中文 ☐`.
+- Allow `LIBREOFFICE_PURE_UNICODE_FONT` to contain a platform path list for
+  deterministic multi-font selection.
+- Add licensed Noto Sans Symbols 2 coverage alongside the Noto Sans SC
+  regression fixture and verify both fonts' ToUnicode text extraction.
+
 ## 0.5.7 - Searchable Unicode PDF text
 
 - Preserve Chinese and other non-WinAnsi text in PDF exports with a subsetted,
