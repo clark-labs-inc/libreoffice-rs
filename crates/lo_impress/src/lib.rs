@@ -1,4 +1,5 @@
 mod chart;
+mod pictures;
 pub mod html;
 pub mod import;
 pub mod markdown;

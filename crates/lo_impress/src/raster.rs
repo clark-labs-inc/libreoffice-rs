@@ -22,8 +22,6 @@ pub fn render_pages(presentation: &Presentation, dpi: u32) -> Vec<RasterImage> {
     let mut pages = Vec::new();
     for slide in &presentation.slides {
         let mut page = RasterImage::new(width, height, Rgba::WHITE);
-        page.fill_rect(0, 0, width as i32, 10, Rgba::rgba(220, 230, 242, 255));
-        page.draw_text(10, 12, 16, Rgba::rgba(60, 60, 60, 255), &slide.name, true);
         for element in &slide.elements {
             match element {
                 SlideElement::TextBox(text_box) => {
@@ -84,35 +82,11 @@ pub fn render_pages(presentation: &Presentation, dpi: u32) -> Vec<RasterImage> {
                         }
                     }
                 }
-                SlideElement::Image(image) => {
-                    let x = mm_to_px(image.frame.origin.x.as_mm(), dpi);
-                    let y = mm_to_px(image.frame.origin.y.as_mm(), dpi);
-                    let w = mm_to_px(image.frame.size.width.as_mm(), dpi).max(40);
-                    let h = mm_to_px(image.frame.size.height.as_mm(), dpi).max(30);
-                    page.fill_rect(x, y, w, h, Rgba::rgba(246, 246, 246, 255));
-                    page.stroke_rect(x, y, w, h, 2, Rgba::rgba(150, 150, 150, 255));
-                    page.draw_line(x, y, x + w, y + h, 1, Rgba::rgba(180, 180, 180, 255));
-                    page.draw_line(x + w, y, x, y + h, 1, Rgba::rgba(180, 180, 180, 255));
-                    page.draw_text(x + 8, y + h / 2, 12, Rgba::rgba(80, 80, 80, 255), &format!("image: {}", image.alt), false);
-                }
+                SlideElement::Image(image) => crate::pictures::paint(&mut page, image, dpi),
             }
         }
         if !slide.chart_tokens.is_empty() {
             render_chart_rows_raster(&mut page, dpi, &slide.chart_tokens);
-        }
-        if !slide.notes.is_empty() {
-            let band_h = 44;
-            let y = height as i32 - band_h;
-            page.fill_rect(0, y, width as i32, band_h, Rgba::rgba(252, 249, 235, 255));
-            page.stroke_rect(0, y, width as i32, band_h, 1, Rgba::rgba(196, 186, 120, 255));
-            page.draw_text(10, y + 8, 12, Rgba::rgba(80, 80, 80, 255), "Notes:", true);
-            let joined = slide.notes.join(" • ");
-            let lines = wrap_text(&page, &joined, 11, width as i32 - 80);
-            let mut ty = y + 22;
-            for line in lines.into_iter().take(2) {
-                page.draw_text(56, ty, 11, Rgba::rgba(80, 80, 80, 255), &line, false);
-                ty += 13;
-            }
         }
         pages.push(page);
     }

@@ -3,8 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fontdb::Database;
+use skrifa::instance::{LocationRef, Size};
+use skrifa::{FontRef, GlyphId, MetadataProvider};
 use subsetter::{subset, GlyphRemapper};
-use ttf_parser::{Face, GlyphId};
 
 use crate::{LoError, Result};
 
@@ -103,12 +104,13 @@ pub(crate) fn build_unicode_fonts(chars: &BTreeSet<char>) -> Result<Vec<Embedded
         for face in &candidates {
             let covered = database
                 .with_face_data(face.id, |data, index| {
-                    Face::parse(data, index)
+                    FontRef::from_index(data, index)
                         .ok()
                         .map(|parsed| {
+                            let charmap = parsed.charmap();
                             remaining
                                 .iter()
-                                .filter(|ch| parsed.glyph_index(**ch).is_some())
+                                .filter(|ch| charmap.map(**ch).is_some())
                                 .copied()
                                 .collect::<BTreeSet<_>>()
                         })
@@ -153,18 +155,24 @@ fn build_from_face(
     post_script_name: &str,
     chars: &BTreeSet<char>,
 ) -> Result<EmbeddedUnicodeFont> {
-    let face = Face::parse(data, face_index)
+    let face = FontRef::from_index(data, face_index)
         .map_err(|_| LoError::Parse("selected Unicode PDF font is malformed".to_string()))?;
+    let charmap = face.charmap();
+    let metrics = face.metrics(Size::unscaled(), LocationRef::default());
+    let glyph_metrics = face.glyph_metrics(Size::unscaled(), LocationRef::default());
     let mut remapper = GlyphRemapper::new();
     let mut old_glyphs = BTreeMap::new();
     for ch in chars {
-        let glyph = face.glyph_index(*ch).ok_or_else(|| {
+        let glyph = charmap.map(*ch).ok_or_else(|| {
             LoError::Unsupported(format!(
                 "selected Unicode PDF font is missing U+{:04X}",
                 *ch as u32
             ))
         })?;
-        if let Some(previous) = old_glyphs.insert(glyph.0, *ch) {
+        let old_gid = u16::try_from(glyph.to_u32()).map_err(|_| {
+            LoError::Unsupported("Unicode PDF glyph exceeds the CID range".to_string())
+        })?;
+        if let Some(previous) = old_glyphs.insert(old_gid, *ch) {
             if previous != *ch {
                 return Err(LoError::Unsupported(format!(
                     "Unicode PDF font aliases U+{:04X} and U+{:04X} to one glyph",
@@ -172,25 +180,30 @@ fn build_from_face(
                 )));
             }
         }
-        remapper.remap(glyph.0);
+        remapper.remap(old_gid);
     }
 
-    let units_per_em = face.units_per_em().max(1) as u32;
+    let units_per_em = metrics.units_per_em.max(1) as u32;
     let widths = remapper
         .remapped_gids()
         .map(|old_gid| {
-            let advance = face.glyph_hor_advance(GlyphId(old_gid)).unwrap_or(units_per_em as u16);
+            let advance = glyph_metrics
+                .advance_width(GlyphId::new(old_gid as u32))
+                .unwrap_or(units_per_em as f32);
             ((advance as u32 * 1000 + units_per_em / 2) / units_per_em).min(u16::MAX as u32)
                 as u16
         })
         .collect::<Vec<_>>();
     let mut char_to_cid = BTreeMap::new();
     for ch in chars {
-        let old_gid = face.glyph_index(*ch).expect("coverage checked").0;
+        let old_gid = u16::try_from(charmap.map(*ch).expect("coverage checked").to_u32())
+            .expect("CID range checked");
         char_to_cid.insert(*ch, remapper.get(old_gid).expect("glyph remapped"));
     }
-    let bbox = face.global_bounding_box();
-    let scale_metric = |value: i16| -> i16 {
+    let bbox = metrics.bounds.ok_or_else(|| {
+        LoError::Parse("selected Unicode PDF font has no global bounds".to_string())
+    })?;
+    let scale_metric = |value: f32| -> i16 {
         ((value as i32 * 1000) / units_per_em as i32)
             .clamp(i16::MIN as i32, i16::MAX as i32) as i16
     };
@@ -208,15 +221,15 @@ fn build_from_face(
         bytes: subset,
         is_true_type,
         widths,
-        ascent: scale_metric(face.ascender()),
-        descent: scale_metric(face.descender()),
+        ascent: scale_metric(metrics.ascent),
+        descent: scale_metric(metrics.descent),
         bbox: (
             scale_metric(bbox.x_min),
             scale_metric(bbox.y_min),
             scale_metric(bbox.x_max),
             scale_metric(bbox.y_max),
         ),
-        italic_angle: face.italic_angle(),
+        italic_angle: metrics.italic_angle,
         char_to_cid,
     })
 }
