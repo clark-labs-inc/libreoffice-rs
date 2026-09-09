@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.8 - Mixed-script PDF font fallback
+
+- Embed multiple subsetted fonts when one installed font cannot cover every
+  character in a PDF, preserving mixed CJK and symbol text such as `中文 ☐`.
+- Allow `LIBREOFFICE_PURE_UNICODE_FONT` to contain a platform path list for
+  deterministic multi-font selection.
+- Add licensed Noto Sans Symbols 2 coverage alongside the Noto Sans SC
+  regression fixture and verify both fonts' ToUnicode text extraction.
+
+## 0.5.7 - Searchable Unicode PDF text
+
+- Preserve Chinese and other non-WinAnsi text in PDF exports with a subsetted,
+  embedded system font instead of replacing unsupported characters with `?`.
+- Emit Identity-H CID fonts and ToUnicode maps so generated text remains
+  searchable, selectable, and extractable.
+- Fail Markdown conversion when no installed font covers the required Unicode
+  characters; install Noto Sans CJK or set `LIBREOFFICE_PURE_UNICODE_FONT` to
+  select a specific font file.
+- Use full-em CJK layout metrics so Chinese text wraps at the rendered width.
+- Add a licensed Noto Sans SC regression subset and end-to-end Chinese PDF
+  extraction coverage.
+
+## 0.5.6 - DOCX drawing and media import
+
+- Import DrawingML and legacy VML image relationships from DOCX paragraphs
+  and tables into Writer image blocks instead of silently dropping them.
+- Preserve embedded image bytes, MIME types, OOXML extents, filenames, and
+  normalized alternative text through DOCX-to-PDF conversion.
+- Ignore trailing empty DOCX paragraphs that would otherwise create a blank
+  final PDF page after image-heavy content.
+- Add an end-to-end DOCX-to-PDF regression proving paragraph and table images
+  are embedded in the generated PDF.
+
 ## 0.5.5 - Polished Markdown PDF layout
 
 - Added content-aware table column widths, roomier cells, repeated headers,
@@ -9,6 +42,8 @@
 - Preserved dollar-denominated funding amounts as text instead of treating
   paired currency markers as inline math.
 - Corrected code-block background painting so later lines do not obscure text.
+- Raised the workspace MSRV to Rust 1.88 to match the current `image` 0.25.10
+  dependency floor.
 
 ## 0.5.4 - Bounded raster memory and reliable batch conversion
 

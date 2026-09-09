@@ -14,6 +14,7 @@ pub mod raster;
 pub mod style;
 pub mod svg;
 pub mod units;
+mod unicode_font;
 pub mod writer;
 pub mod xml;
 pub mod xml_parser;

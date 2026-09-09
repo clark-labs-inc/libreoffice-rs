@@ -6,9 +6,9 @@
 //! `to_pdf_with_size`, which falls through to the same layout
 //! engine but on a custom page size.
 
-use lo_core::{units::Length, TextDocument};
+use lo_core::{units::Length, Result, TextDocument};
 
-use crate::layout::render_document_pdf;
+use crate::layout::{render_document_pdf, try_render_document_pdf};
 
 /// Default page is A4 in points (595×842pt). Multi-page output is
 /// produced as needed by the layout engine.
@@ -16,9 +16,19 @@ pub fn to_pdf(document: &TextDocument) -> Vec<u8> {
     render_document_pdf(document)
 }
 
+/// Fallible PDF export used by conversion APIs that must reject Unicode text
+/// when no installed font can preserve every character.
+pub fn try_to_pdf(document: &TextDocument) -> Result<Vec<u8>> {
+    try_render_document_pdf(document)
+}
+
 /// `width`/`height` are accepted for API compatibility but currently
 /// ignored — the layout engine always renders at A4. We keep the
 /// signature so downstream callers don't have to change.
-pub fn to_pdf_with_size(document: &TextDocument, _width: Length, _height: Length) -> Vec<u8> {
+pub fn to_pdf_with_size(
+    document: &TextDocument,
+    _width: Length,
+    _height: Length,
+) -> Vec<u8> {
     render_document_pdf(document)
 }

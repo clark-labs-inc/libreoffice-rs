@@ -18,7 +18,7 @@
 //!   that include menubar, toolbar, sidebar and a tile preview of the doc
 //!
 //! It is intentionally GUI-toolkit-free: every interactive surface is
-//! exposed as data (Vec<MenuSection>, Vec<ToolbarItem>, sidebar markup, …)
+//! exposed as data (`Vec<MenuSection>`, `Vec<ToolbarItem>`, sidebar markup, …)
 //! plus an `execute_window_command` entry point. A real GUI front-end can
 //! consume those data structures directly, and a CLI demo can render them
 //! to HTML.

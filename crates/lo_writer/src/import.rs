@@ -197,46 +197,56 @@ pub fn from_docx_bytes(title: impl Into<String>, bytes: &[u8]) -> Result<TextDoc
         };
         match node.local_name() {
             "p" => {
+                let images = crate::docx_images::from_docx_node(node, &relationships, &zip);
                 let info = parse_docx_paragraph(node, &relationships, &styles);
                 if info.page_break && info.spans.iter().all(|span| span.text.trim().is_empty()) {
                     flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
                     doc.body.push(Block::PageBreak);
-                    continue;
-                }
-                let paragraph = build_paragraph(info.spans.clone());
-                let is_empty_text = paragraph.spans.is_empty()
-                    || paragraph
-                        .spans
-                        .iter()
-                        .all(|inline| inline_text(inline).trim().is_empty());
-                if is_empty_text && info.heading_level.is_none() && info.list_key.is_none() {
-                    flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
-                    doc.body.push(Block::Paragraph(paragraph));
-                    continue;
-                }
-                if let Some(level) = info.heading_level {
-                    flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
-                    doc.body.push(Block::Heading(Heading {
-                        level,
-                        content: paragraph,
-                    }));
-                } else if let Some(key) = info.list_key.as_deref() {
-                    let ordered = numbering.get(key).copied().unwrap_or(false);
-                    if !pending_list.is_empty() && pending_list_ordered != ordered {
-                        flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
-                    }
-                    pending_list_ordered = ordered;
-                    pending_list.push(ListItem {
-                        blocks: vec![Block::Paragraph(paragraph)],
-                    });
                 } else {
+                    let paragraph = build_paragraph(info.spans.clone());
+                    let is_empty_text = paragraph.spans.is_empty()
+                        || paragraph
+                            .spans
+                            .iter()
+                            .all(|inline| inline_text(inline).trim().is_empty());
+                    if is_empty_text && info.heading_level.is_none() && info.list_key.is_none() {
+                        flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
+                        if images.is_empty() {
+                            doc.body.push(Block::Paragraph(paragraph));
+                        }
+                    } else if let Some(level) = info.heading_level {
+                        flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
+                        doc.body.push(Block::Heading(Heading {
+                            level,
+                            content: paragraph,
+                        }));
+                    } else if let Some(key) = info.list_key.as_deref() {
+                        let ordered = numbering.get(key).copied().unwrap_or(false);
+                        if !pending_list.is_empty() && pending_list_ordered != ordered {
+                            flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
+                        }
+                        pending_list_ordered = ordered;
+                        pending_list.push(ListItem {
+                            blocks: vec![Block::Paragraph(paragraph)],
+                        });
+                    } else {
+                        flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
+                        doc.body.push(Block::Paragraph(paragraph));
+                    }
+                }
+                if !images.is_empty() {
                     flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
-                    doc.body.push(Block::Paragraph(paragraph));
+                    doc.body.extend(images.into_iter().map(Block::Image));
                 }
             }
             "tbl" => {
                 flush_list_with(&mut doc, &mut pending_list, pending_list_ordered);
                 doc.body.push(Block::Table(parse_docx_table(node)));
+                doc.body.extend(
+                    crate::docx_images::from_docx_node(node, &relationships, &zip)
+                        .into_iter()
+                        .map(Block::Image),
+                );
             }
             _ => {}
         }
@@ -265,6 +275,12 @@ pub fn from_docx_bytes(title: impl Into<String>, bytes: &[u8]) -> Result<TextDoc
     }
     for line in footer_blocks {
         doc.body.push(Block::Paragraph(Paragraph::plain(line)));
+    }
+    while matches!(
+        doc.body.last(),
+        Some(Block::Paragraph(paragraph)) if paragraph.to_plain_text().trim().is_empty()
+    ) {
+        doc.body.pop();
     }
     if doc.body.is_empty() {
         doc.body.push(Block::Paragraph(Paragraph::default()));

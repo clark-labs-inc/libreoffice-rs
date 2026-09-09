@@ -1,12 +1,15 @@
-//! Multi-page PDF canvas built on top of [`pdf_from_objects`].
+//! Multi-page PDF canvas built on top of [`crate::pdf::pdf_from_objects`].
 //!
 //! This layer is still intentionally small, but it now exposes the
 //! primitives needed by Clark's visual Writer/Impress verification path:
 //! colored text, filled/stroked rectangles, ellipses, line width, and a
 //! larger set of base fonts.
 
-use crate::pdf::pdf_escape_win_ansi;
+use std::collections::BTreeSet;
+
+use crate::pdf::{pdf_can_encode_win_ansi, pdf_escape_win_ansi, pdf_text_string};
 use crate::pdf::pdf_from_binary_objects;
+use crate::unicode_font::{build_unicode_fonts, EmbeddedUnicodeFont};
 use crate::{LoError, Result};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +47,17 @@ impl PdfFont {
             Self::TimesItalic => "Times-Italic",
         }
     }
+
+    fn is_bold(self) -> bool {
+        matches!(self, Self::HelveticaBold | Self::TimesBold)
+    }
+
+    fn is_italic(self) -> bool {
+        matches!(
+            self,
+            Self::HelveticaOblique | Self::TimesItalic
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -51,8 +65,15 @@ pub struct PdfPage {
     pub width: f32,
     pub height: f32,
     commands: String,
+    unicode_texts: Vec<UnicodeText>,
     links: Vec<PdfLink>,
     tags: Vec<PdfTag>,
+}
+
+#[derive(Clone, Debug)]
+struct UnicodeText {
+    text: String,
+    size: f32,
 }
 
 impl PdfPage {
@@ -61,6 +82,7 @@ impl PdfPage {
             width,
             height,
             commands: String::new(),
+            unicode_texts: Vec::new(),
             links: Vec::new(),
             tags: Vec::new(),
         }
@@ -81,16 +103,36 @@ impl PdfPage {
         g: f32,
         b: f32,
     ) {
+        let unicode = !pdf_can_encode_win_ansi(text);
+        let resource_name = if unicode { "FU0" } else { font.resource_name() };
         self.commands.push_str("BT\n");
         self.commands
             .push_str(&format!("{r:.3} {g:.3} {b:.3} rg\n"));
+        if unicode && font.is_bold() {
+            self.commands.push_str("0.35 w\n2 Tr\n");
+        }
         self.commands
-            .push_str(&format!("/{} {} Tf\n", font.resource_name(), size));
+            .push_str(&format!("/{resource_name} {size} Tf\n"));
+        let shear = if unicode && font.is_italic() { 0.20 } else { 0.0 };
         self.commands
-            .push_str(&format!("1 0 0 1 {:.2} {:.2} Tm\n", x, y));
-        self.commands.push('(');
-        self.commands.push_str(&pdf_escape_win_ansi(text));
-        self.commands.push_str(") Tj\nET\n0 0 0 rg\n");
+            .push_str(&format!("1 0 {shear:.2} 1 {x:.2} {y:.2} Tm\n"));
+        if unicode {
+            let index = self.unicode_texts.len();
+            self.unicode_texts.push(UnicodeText {
+                text: text.to_string(),
+                size,
+            });
+            self.commands
+                .push_str(&format!("__LO_UNICODE_TEXT_{index}__\n"));
+        } else {
+            self.commands.push('(');
+            self.commands.push_str(&pdf_escape_win_ansi(text));
+            self.commands.push_str(") Tj\n");
+        }
+        if unicode && font.is_bold() {
+            self.commands.push_str("0 Tr\n1 w\n");
+        }
+        self.commands.push_str("ET\n0 0 0 rg\n");
     }
 
     pub fn line(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
@@ -429,9 +471,25 @@ impl PdfDocument {
     }
 
     pub fn finish(self) -> Vec<u8> {
+        self.try_finish()
+            .expect("PDF text contains Unicode that no installed font can preserve")
+    }
+
+    pub fn try_finish(self) -> Result<Vec<u8>> {
         if self.pages.is_empty() {
             return empty_pdf();
         }
+        let unicode_chars = self
+            .pages
+            .iter()
+            .flat_map(|page| page.unicode_texts.iter())
+            .flat_map(|text| text.text.chars())
+            .collect::<BTreeSet<_>>();
+        let unicode_fonts = if unicode_chars.is_empty() {
+            Vec::new()
+        } else {
+            build_unicode_fonts(&unicode_chars)?
+        };
         let mut objects: Vec<Vec<u8>> = Vec::new();
         objects.push(Vec::new()); // catalog
         objects.push(Vec::new()); // pages tree
@@ -452,7 +510,11 @@ impl PdfDocument {
                 .into_bytes(),
             );
         }
-        let page_start = 10usize;
+        let unicode_font_objects = unicode_fonts
+            .iter()
+            .map(|font| append_unicode_font_objects(&mut objects, font))
+            .collect::<Vec<_>>();
+        let page_start = objects.len() + 1;
         let image_start = page_start + self.pages.len() * 2;
         let mask_start = image_start + self.images.len();
         let annotation_start = mask_start + self.images.iter().filter(|image| image.alpha.is_some()).count();
@@ -484,7 +546,12 @@ impl PdfDocument {
             let page_obj = page_start + index * 2;
             let content_obj = page_obj + 1;
             kids.push(format!("{} 0 R", page_obj));
-            let resources = format!("<< /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R /F5 7 0 R /F6 8 0 R /F7 9 0 R >>{xobjects} >>");
+            let unicode_resource = unicode_font_objects
+                .iter()
+                .enumerate()
+                .map(|(font_index, object)| format!(" /FU{font_index} {object} 0 R"))
+                .collect::<String>();
+            let resources = format!("<< /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R /F5 7 0 R /F6 8 0 R /F7 9 0 R{unicode_resource} >>{xobjects} >>");
             let annotations = if page.links.is_empty() {
                 String::new()
             } else {
@@ -503,11 +570,12 @@ impl PdfDocument {
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.2} {:.2}] /Resources {} /Contents {} 0 R /StructParents {}{} >>",
                 page.width, page.height, resources, content_obj, index, annotations
             ).into_bytes());
+            let commands = render_page_commands(page, &unicode_fonts)?;
             objects.push(
                 format!(
                     "<< /Length {} >>\nstream\n{}endstream",
-                    page.commands.len(),
-                    page.commands
+                    commands.len(),
+                    commands
                 )
                 .into_bytes(),
             );
@@ -547,10 +615,10 @@ impl PdfDocument {
         for (page_index, page) in self.pages.iter().enumerate() {
             let page_obj = page_start + page_index * 2;
             for link in &page.links {
-                let uri = pdf_escape_win_ansi(&link.uri);
+                let uri = pdf_text_string(&link.uri);
                 objects.push(
                     format!(
-                        "<< /Type /Annot /Subtype /Link /P {page_obj} 0 R /Rect [{:.2} {:.2} {:.2} {:.2}] /Border [0 0 0] /A << /S /URI /URI ({uri}) >> >>",
+                        "<< /Type /Annot /Subtype /Link /P {page_obj} 0 R /Rect [{:.2} {:.2} {:.2} {:.2}] /Border [0 0 0] /A << /S /URI /URI {uri} >> >>",
                         link.x,
                         link.y,
                         link.x + link.width,
@@ -576,9 +644,10 @@ impl PdfDocument {
                     .join(" ")
             ));
             for (tag, object) in page.tags.iter().zip(refs) {
-                let alt = tag.alt.as_ref().map_or_else(String::new, |value| {
-                    format!(" /Alt ({})", pdf_escape_win_ansi(value))
-                });
+                let alt = tag
+                    .alt
+                    .as_ref()
+                    .map_or_else(String::new, |value| format!(" /Alt {}", pdf_text_string(value)));
                 objects.push(
                     format!(
                         "<< /Type /StructElem /S /{} /P {} 0 R /Pg {} 0 R /K {}{} >>",
@@ -600,8 +669,9 @@ impl PdfDocument {
             )
             .into_bytes(),
         );
+        let language = document_language(&unicode_chars);
         objects[0] = format!(
-            "<< /Type /Catalog /Pages 2 0 R /Lang (en-US) /MarkInfo << /Marked true >> /StructTreeRoot {} 0 R >>",
+            "<< /Type /Catalog /Pages 2 0 R /Lang ({language}) /MarkInfo << /Marked true >> /StructTreeRoot {} 0 R >>",
             structure_tree_obj
         )
         .into_bytes();
@@ -611,17 +681,174 @@ impl PdfDocument {
             kids.join(" ")
         )
         .into_bytes();
-        pdf_from_binary_objects(&objects)
+        Ok(pdf_from_binary_objects(&objects))
     }
 }
 
-fn empty_pdf() -> Vec<u8> {
+fn empty_pdf() -> Result<Vec<u8>> {
     let mut doc = PdfDocument::new();
     let page = doc.add_page(595.0, 842.0);
     let _ = doc
         .page_mut(page)
         .map(|p| p.text(50.0, 792.0, 12.0, PdfFont::Helvetica, ""));
-    doc.finish()
+    doc.try_finish()
+}
+
+fn render_page_commands(
+    page: &PdfPage,
+    unicode_fonts: &[EmbeddedUnicodeFont],
+) -> Result<String> {
+    let mut commands = page.commands.clone();
+    for (index, text) in page.unicode_texts.iter().enumerate() {
+        let encoded = encode_unicode_text(text, unicode_fonts)?;
+        commands = commands.replace(
+            &format!("__LO_UNICODE_TEXT_{index}__"),
+            &encoded,
+        );
+    }
+    Ok(commands)
+}
+
+fn encode_unicode_text(text: &UnicodeText, fonts: &[EmbeddedUnicodeFont]) -> Result<String> {
+    let mut encoded = String::new();
+    let mut active_font = None;
+    let mut segment = String::new();
+    for ch in text.text.chars() {
+        let font_index = fonts
+            .iter()
+            .position(|font| font.char_to_cid.contains_key(&ch))
+            .ok_or_else(|| {
+                LoError::Unsupported(format!(
+                    "Unicode PDF fonts do not contain U+{:04X}",
+                    ch as u32
+                ))
+            })?;
+        if active_font.is_some_and(|active| active != font_index) {
+            append_unicode_segment(
+                &mut encoded,
+                active_font.expect("active font"),
+                text.size,
+                &segment,
+                fonts,
+            )?;
+            segment.clear();
+        }
+        active_font = Some(font_index);
+        segment.push(ch);
+    }
+    if let Some(font_index) = active_font {
+        append_unicode_segment(
+            &mut encoded,
+            font_index,
+            text.size,
+            &segment,
+            fonts,
+        )?;
+    }
+    Ok(encoded)
+}
+
+fn append_unicode_segment(
+    output: &mut String,
+    font_index: usize,
+    size: f32,
+    text: &str,
+    fonts: &[EmbeddedUnicodeFont],
+) -> Result<()> {
+    output.push_str(&format!(
+        "/FU{font_index} {size} Tf\n{} Tj\n",
+        fonts[font_index].encode_hex(text)?
+    ));
+    Ok(())
+}
+
+fn append_unicode_font_objects(
+    objects: &mut Vec<Vec<u8>>,
+    font: &EmbeddedUnicodeFont,
+) -> usize {
+    let type0_obj = objects.len() + 1;
+    let descendant_obj = type0_obj + 1;
+    let descriptor_obj = type0_obj + 2;
+    let font_file_obj = type0_obj + 3;
+    let to_unicode_obj = type0_obj + 4;
+    let descendant_subtype = if font.is_true_type {
+        "CIDFontType2"
+    } else {
+        "CIDFontType0"
+    };
+    let font_file_key = if font.is_true_type {
+        "FontFile2"
+    } else {
+        "FontFile3"
+    };
+    let font_file_extra = if font.is_true_type {
+        format!(" /Length1 {}", font.bytes.len())
+    } else {
+        " /Subtype /OpenType".to_string()
+    };
+    objects.push(
+        format!(
+            "<< /Type /Font /Subtype /Type0 /BaseFont /{} /Encoding /Identity-H /DescendantFonts [{} 0 R] /ToUnicode {} 0 R >>",
+            font.base_name, descendant_obj, to_unicode_obj
+        )
+        .into_bytes(),
+    );
+    objects.push(
+        format!(
+            "<< /Type /Font /Subtype /{descendant_subtype} /BaseFont /{} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {} 0 R /W [0 [{}]]{} >>",
+            font.base_name,
+            descriptor_obj,
+            font.widths_array(),
+            if font.is_true_type { " /CIDToGIDMap /Identity" } else { "" }
+        )
+        .into_bytes(),
+    );
+    objects.push(
+        format!(
+            "<< /Type /FontDescriptor /FontName /{} /Flags 32 /FontBBox [{} {} {} {}] /ItalicAngle {:.2} /Ascent {} /Descent {} /CapHeight {} /StemV 80 /{} {} 0 R >>",
+            font.base_name,
+            font.bbox.0,
+            font.bbox.1,
+            font.bbox.2,
+            font.bbox.3,
+            font.italic_angle,
+            font.ascent,
+            font.descent,
+            font.ascent,
+            font_file_key,
+            font_file_obj
+        )
+        .into_bytes(),
+    );
+    let mut font_stream = format!(
+        "<< /Length {}{} >>\nstream\n",
+        font.bytes.len(),
+        font_file_extra
+    )
+    .into_bytes();
+    font_stream.extend_from_slice(&font.bytes);
+    font_stream.extend_from_slice(b"\nendstream");
+    objects.push(font_stream);
+    let cmap = font.to_unicode_cmap();
+    let mut cmap_stream = format!("<< /Length {} >>\nstream\n", cmap.len()).into_bytes();
+    cmap_stream.extend_from_slice(&cmap);
+    cmap_stream.extend_from_slice(b"endstream");
+    objects.push(cmap_stream);
+    type0_obj
+}
+
+fn document_language(chars: &BTreeSet<char>) -> &'static str {
+    if chars.iter().any(|ch| matches!(*ch as u32, 0x4E00..=0x9FFF | 0x3400..=0x4DBF)) {
+        "zh-CN"
+    } else if chars.iter().any(|ch| matches!(*ch as u32, 0x3040..=0x30FF)) {
+        "ja"
+    } else if chars.iter().any(|ch| matches!(*ch as u32, 0xAC00..=0xD7AF)) {
+        "ko"
+    } else if chars.is_empty() {
+        "en-US"
+    } else {
+        "und"
+    }
 }
 
 #[cfg(test)]
