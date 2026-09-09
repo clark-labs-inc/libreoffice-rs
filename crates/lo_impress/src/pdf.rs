@@ -24,10 +24,19 @@ pub fn to_pdf(presentation: &Presentation) -> Vec<u8> {
 
     for slide in &presentation.slides {
         let page_index = pdf.add_page(slide_w, slide_h);
+        let picture_resources: Vec<Option<String>> = slide.elements.iter().map(|element| {
+            let SlideElement::Image(picture) = element else { return None };
+            let pixels = crate::pictures::decode(&picture.data).ok()?;
+            if picture.data.starts_with(&[0xff, 0xd8, 0xff]) {
+                Some(pdf.add_jpeg_image(pixels.width(), pixels.height(), picture.data.clone()))
+            } else {
+                pdf.add_rgba_image(pixels.width(), pixels.height(), pixels.as_raw()).ok()
+            }
+        }).collect();
         let page = pdf.page_mut(page_index).expect("slide page");
         page.rect_fill_rgb(0.0, 0.0, slide_w, slide_h, 1.0, 1.0, 1.0);
 
-        for element in &slide.elements {
+        for (element_index, element) in slide.elements.iter().enumerate() {
             match element {
                 SlideElement::TextBox(text_box) => {
                     render_text_box(page, slide_h, text_box);
@@ -56,24 +65,12 @@ pub fn to_pdf(presentation: &Presentation) -> Vec<u8> {
                     page.line_width(1.0);
                 }
                 SlideElement::Image(image) => {
-                    let x = image.frame.origin.x.as_pt();
-                    let y_top = image.frame.origin.y.as_pt();
-                    let w = image.frame.size.width.as_pt().max(32.0);
-                    let h = image.frame.size.height.as_pt().max(24.0);
-                    let y_bottom = slide_h - y_top - h;
-                    page.rect_fill_stroke_rgb(x, y_bottom, w, h, (0.98, 0.98, 0.98), (0.55, 0.55, 0.55));
-                    page.line_rgb(x, y_bottom, x + w, y_bottom + h, 0.70, 0.70, 0.70);
-                    page.line_rgb(x, y_bottom + h, x + w, y_bottom, 0.70, 0.70, 0.70);
-                    page.text_rgb(
-                        x + 6.0,
-                        y_bottom + 10.0,
-                        11.0,
-                        PdfFont::HelveticaOblique,
-                        &format!("[image: {}]", image.alt),
-                        0.30,
-                        0.30,
-                        0.30,
-                    );
+                    if let Some(resource) = &picture_resources[element_index] {
+                        let width = image.frame.size.width.as_pt();
+                        let height = image.frame.size.height.as_pt();
+                        page.image(resource, image.frame.origin.x.as_pt(),
+                            slide_h - image.frame.origin.y.as_pt() - height, width, height);
+                    }
                 }
             }
         }

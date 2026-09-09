@@ -84,17 +84,7 @@ pub fn render_pages(presentation: &Presentation, dpi: u32) -> Vec<RasterImage> {
                         }
                     }
                 }
-                SlideElement::Image(image) => {
-                    let x = mm_to_px(image.frame.origin.x.as_mm(), dpi);
-                    let y = mm_to_px(image.frame.origin.y.as_mm(), dpi);
-                    let w = mm_to_px(image.frame.size.width.as_mm(), dpi).max(40);
-                    let h = mm_to_px(image.frame.size.height.as_mm(), dpi).max(30);
-                    page.fill_rect(x, y, w, h, Rgba::rgba(246, 246, 246, 255));
-                    page.stroke_rect(x, y, w, h, 2, Rgba::rgba(150, 150, 150, 255));
-                    page.draw_line(x, y, x + w, y + h, 1, Rgba::rgba(180, 180, 180, 255));
-                    page.draw_line(x + w, y, x, y + h, 1, Rgba::rgba(180, 180, 180, 255));
-                    page.draw_text(x + 8, y + h / 2, 12, Rgba::rgba(80, 80, 80, 255), &format!("image: {}", image.alt), false);
-                }
+                SlideElement::Image(image) => crate::pictures::paint(&mut page, image, dpi),
             }
         }
         if !slide.chart_tokens.is_empty() {

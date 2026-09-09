@@ -108,6 +108,16 @@ pub fn from_pptx_bytes(title: impl Into<String>, bytes: &[u8]) -> Result<Present
     let rels = parse_relationships(&zip, "ppt/presentation.xml")?;
 
     let mut deck = Presentation::new(title);
+    if let Some(size) = presentation_xml.child("sldSz") {
+        if let (Some(width), Some(height)) = (
+            size.attr("cx").and_then(|v| v.parse::<f32>().ok()),
+            size.attr("cy").and_then(|v| v.parse::<f32>().ok()),
+        ) {
+            if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+                deck.page_size = lo_core::Size::new(Length::mm(width / 36_000.0), Length::mm(height / 36_000.0));
+            }
+        }
+    }
     if let Some(list) = presentation_xml.child("sldIdLst") {
         for (index, slide_id) in list.children_named("sldId").enumerate() {
             let target = slide_id
@@ -125,7 +135,7 @@ pub fn from_pptx_bytes(title: impl Into<String>, bytes: &[u8]) -> Result<Present
             let chart_rows = load_pptx_chart_rows(&zip, &slide_root, &slide_rels)?;
             let table_texts = collect_pptx_table_texts(&slide_root);
             deck.slides
-                .push(parse_pptx_slide(&slide_root, notes, chart_rows, table_texts));
+                .push(parse_pptx_slide(&slide_root, notes, chart_rows, table_texts, &zip, &slide_rels)?);
         }
     }
     if deck.slides.is_empty() {
@@ -242,7 +252,9 @@ fn parse_pptx_slide(
     notes: Vec<String>,
     chart_texts: Vec<Vec<String>>,
     table_texts: Vec<Vec<String>>,
-) -> Slide {
+    zip: &ZipArchive,
+    relationships: &BTreeMap<String, String>,
+) -> Result<Slide> {
     let mut slide = Slide {
         name: "Slide".to_string(),
         elements: Vec::new(),
@@ -251,7 +263,7 @@ fn parse_pptx_slide(
     };
     let mut title_set = false;
     if let Some(sp_tree) = root.child("cSld").and_then(|node| node.child("spTree")) {
-        walk_pptx_sp_tree(sp_tree, &mut slide, &mut title_set);
+        walk_pptx_sp_tree(sp_tree, &mut slide, &mut title_set, zip, relationships)?;
     }
 
     // Hand chart tokens to the PDF/raster backends via `slide.chart_tokens`
@@ -284,16 +296,21 @@ fn parse_pptx_slide(
             slide.name = text_box.text.lines().next().unwrap_or("Slide").to_string();
         }
     }
-    slide
+    Ok(slide)
 }
 
 /// Recursively walk a `<p:spTree>` (or nested `<p:grpSp>`) collecting
 /// shapes, group shapes, and graphic frames into the slide.
-fn walk_pptx_sp_tree(node: &XmlNode, slide: &mut Slide, title_set: &mut bool) {
+fn walk_pptx_sp_tree(node: &XmlNode, slide: &mut Slide, title_set: &mut bool, zip: &ZipArchive, relationships: &BTreeMap<String, String>) -> Result<()> {
     for child in &node.children {
         match child.local_name() {
             "sp" => parse_pptx_shape_into(child, slide, title_set),
-            "grpSp" => walk_pptx_sp_tree(child, slide, title_set),
+            "grpSp" => {
+                let start = slide.elements.len();
+                walk_pptx_sp_tree(child, slide, title_set, zip, relationships)?;
+                crate::pictures::place_group(child, &mut slide.elements[start..])?;
+            },
+            "pic" => slide.elements.push(SlideElement::Image(crate::pictures::load(child, zip, relationships)?)),
             "graphicFrame" => {
                 if graphic_frame_has_chart(child) {
                     continue;
@@ -323,6 +340,7 @@ fn walk_pptx_sp_tree(node: &XmlNode, slide: &mut Slide, title_set: &mut bool) {
             _ => {}
         }
     }
+    Ok(())
 }
 
 fn parse_pptx_shape_into(shape: &XmlNode, slide: &mut Slide, title_set: &mut bool) {

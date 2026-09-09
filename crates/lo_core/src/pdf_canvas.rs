@@ -356,6 +356,7 @@ struct PdfImage {
     height: u32,
     bytes: Vec<u8>,
     jpeg: bool,
+    alpha: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -393,6 +394,7 @@ impl PdfDocument {
             height,
             bytes,
             jpeg: false,
+            alpha: None,
         });
         format!("Im{}", self.images.len())
     }
@@ -403,8 +405,27 @@ impl PdfDocument {
             height,
             bytes,
             jpeg: true,
+            alpha: None,
         });
         format!("Im{}", self.images.len())
+    }
+
+    /// Embed RGBA pixels with a PDF soft mask, preserving transparency over
+    /// earlier page elements rather than flattening against an assumed white page.
+    pub fn add_rgba_image(&mut self, width: u32, height: u32, pixels: &[u8]) -> Result<String> {
+        let expected = (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4));
+        if expected != Some(pixels.len()) || width == 0 || height == 0 {
+            return Err(LoError::InvalidInput("RGBA image dimensions do not match pixels".into()));
+        }
+        let mut rgb = Vec::with_capacity(pixels.len() / 4 * 3);
+        let mut alpha = Vec::with_capacity(pixels.len() / 4);
+        for pixel in pixels.chunks_exact(4) {
+            rgb.extend_from_slice(&pixel[..3]);
+            alpha.push(pixel[3]);
+        }
+        let alpha = alpha.iter().any(|value| *value != 255).then_some(alpha);
+        self.images.push(PdfImage { width, height, bytes: rgb, jpeg: false, alpha });
+        Ok(format!("Im{}", self.images.len()))
     }
 
     pub fn finish(self) -> Vec<u8> {
@@ -433,7 +454,8 @@ impl PdfDocument {
         }
         let page_start = 10usize;
         let image_start = page_start + self.pages.len() * 2;
-        let annotation_start = image_start + self.images.len();
+        let mask_start = image_start + self.images.len();
+        let annotation_start = mask_start + self.images.iter().filter(|image| image.alpha.is_some()).count();
         let annotation_count = self
             .pages
             .iter()
@@ -491,19 +513,36 @@ impl PdfDocument {
             );
             annotations_before_page += page.links.len();
         }
+        let mut mask_index = 0;
         for image in &self.images {
+            let mask = if image.alpha.is_some() {
+                let reference = format!(" /SMask {} 0 R", mask_start + mask_index);
+                mask_index += 1;
+                reference
+            } else { String::new() };
             let filter = if image.jpeg {
                 " /Filter /DCTDecode"
             } else {
                 ""
             };
             let mut object = format!(
-                "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8{filter} /Length {} >>\nstream\n",
+                "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8{filter}{mask} /Length {} >>\nstream\n",
                 image.width, image.height, image.bytes.len()
             ).into_bytes();
             object.extend_from_slice(&image.bytes);
             object.extend_from_slice(b"\nendstream");
             objects.push(object);
+        }
+        for image in &self.images {
+            if let Some(alpha) = &image.alpha {
+                let mut object = format!(
+                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent 8 /Length {} >>\nstream\n",
+                    image.width, image.height, alpha.len()
+                ).into_bytes();
+                object.extend_from_slice(alpha);
+                object.extend_from_slice(b"\nendstream");
+                objects.push(object);
+            }
         }
         for (page_index, page) in self.pages.iter().enumerate() {
             let page_obj = page_start + page_index * 2;
