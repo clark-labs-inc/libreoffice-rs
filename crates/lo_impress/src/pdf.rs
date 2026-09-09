@@ -78,15 +78,6 @@ pub fn to_pdf(presentation: &Presentation) -> Vec<u8> {
         if !slide.chart_tokens.is_empty() {
             render_chart_rows_pdf(page, slide_h, slide_w, &slide.chart_tokens);
         }
-        if !slide.notes.is_empty() {
-            let band_h = 48.0f32.min(slide_h * 0.18);
-            page.rect_fill_rgb(0.0, 0.0, slide_w, band_h, 0.96, 0.96, 0.96);
-            let mut y = band_h - 14.0;
-            for note in slide.notes.iter().take(3) {
-                page.text_rgb(18.0, y, 10.5, PdfFont::HelveticaOblique, note, 0.20, 0.20, 0.20);
-                y -= 12.0;
-            }
-        }
 
     }
 

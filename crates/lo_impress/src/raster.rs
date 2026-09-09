@@ -22,8 +22,6 @@ pub fn render_pages(presentation: &Presentation, dpi: u32) -> Vec<RasterImage> {
     let mut pages = Vec::new();
     for slide in &presentation.slides {
         let mut page = RasterImage::new(width, height, Rgba::WHITE);
-        page.fill_rect(0, 0, width as i32, 10, Rgba::rgba(220, 230, 242, 255));
-        page.draw_text(10, 12, 16, Rgba::rgba(60, 60, 60, 255), &slide.name, true);
         for element in &slide.elements {
             match element {
                 SlideElement::TextBox(text_box) => {
@@ -89,20 +87,6 @@ pub fn render_pages(presentation: &Presentation, dpi: u32) -> Vec<RasterImage> {
         }
         if !slide.chart_tokens.is_empty() {
             render_chart_rows_raster(&mut page, dpi, &slide.chart_tokens);
-        }
-        if !slide.notes.is_empty() {
-            let band_h = 44;
-            let y = height as i32 - band_h;
-            page.fill_rect(0, y, width as i32, band_h, Rgba::rgba(252, 249, 235, 255));
-            page.stroke_rect(0, y, width as i32, band_h, 1, Rgba::rgba(196, 186, 120, 255));
-            page.draw_text(10, y + 8, 12, Rgba::rgba(80, 80, 80, 255), "Notes:", true);
-            let joined = slide.notes.join(" • ");
-            let lines = wrap_text(&page, &joined, 11, width as i32 - 80);
-            let mut ty = y + 22;
-            for line in lines.into_iter().take(2) {
-                page.draw_text(56, ty, 11, Rgba::rgba(80, 80, 80, 255), &line, false);
-                ty += 13;
-            }
         }
         pages.push(page);
     }

@@ -15,6 +15,6 @@ path = "src/lib.rs"
 
 [dependencies]
 fontdb = "0.24.0"
-image = { version = "=0.25.10", default-features = false, features = ["webp"] }
+image = { version = "=0.25.10", default-features = false, features = ["webp", "jpeg"] }
 subsetter = { version = "0.2.6", default-features = false }
 ttf-parser = "0.25.1"
